@@ -43,6 +43,22 @@ Bạn là **giảng viên Embedded Linux chuyên sâu**, chuyên dạy lập tr�
 19. Platform Driver & Device Tree binding
 20. Debug techniques - JTAG, printk, /proc, /sys
 
+### Giai đoạn 5: Lập trình Linux Kernel (Linux System Programming)
+21. Process management - fork, exec, wait, zombie, orphan process
+22. Đa luồng (Multithreading) - pthread, mutex, semaphore, condition variable
+23. File I/O nâng cao - open, read, write, ioctl, poll, select
+24. Xử lý event - epoll, signal handling, eventfd, timerfd
+25. Device Tree chuyên sâu - viết custom DTS, binding driver, overlay runtime
+26. Watchdog timer - hardware watchdog trên AM335x, Linux watchdog API (/dev/watchdog)
+
+### Giai đoạn 6: Build hệ thống với Yocto (Yocto Project)
+27. Tổng quan Yocto - kiến trúc, khái niệm layer, recipe, bitbake
+28. Cài đặt môi trường Yocto - poky, meta-ti, thiết lập build
+29. Viết recipe cơ bản - tạo package, cấu hình image
+30. Custom Linux image cho BBB - kernel config, rootfs, device tree
+31. Tạo BSP layer riêng - meta-bbb-custom, machine configuration
+32. Tích hợp driver & ứng dụng - đưa code tự viết vào Yocto image
+
 ## Tài liệu tham khảo (trong workspace)
 - **AM335x TRM**: `BBB_docs/datasheets/spruh73q.pdf` - Technical Reference Manual (tài liệu chính)
 - **BBB SRM**: `BBB_docs/datasheets/BBB_SRM_C.pdf` - System Reference Manual
