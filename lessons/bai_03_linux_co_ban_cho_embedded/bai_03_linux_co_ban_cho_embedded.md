@@ -121,24 +121,30 @@ Mỗi thiết bị phần cứng được kernel biểu diễn như một **file
 
 Đây là nơi kernel **xuất thông tin phần cứng** ra cho userspace theo dạng cây thư mục:
 
+**Ban đầu** (chưa export GPIO nào):
+```bash
+$ ls /sys/class/gpio/
+export  gpiochip512  gpiochip544  gpiochip576  gpiochip608  unexport
 ```
-/sys/
-├── class/
-│   ├── gpio/          ← GPIO interface
-│   │   ├── export     ← ghi số GPIO vào đây để kích hoạt
-│   │   ├── unexport   ← ghi số GPIO để hủy kích hoạt
-│   │   └── gpio60/    ← thư mục cho GPIO 60
-│   │       ├── direction  ← "in" hoặc "out"
-│   │       ├── value      ← "0" hoặc "1"
-│   │       └── edge       ← "none", "rising", "falling", "both"
-│   ├── leds/          ← LED interface
-│   └── ...
-├── bus/
-│   ├── i2c/
-│   ├── spi/
-│   └── ...
-└── devices/           ← cây thiết bị vật lý
+
+- `export` - file để kích hoạt GPIO (ghi số GPIO vào đây)
+- `unexport` - file để hủy kích hoạt GPIO
+- `gpiochip*` - cây tổng hợp thông tin các GPIO module (đọc thấy chi tiết từng GPIO có sẵn)
+
+**Sau khi export GPIO 60**:
+```bash
+$ echo 60 > /sys/class/gpio/export
+$ ls /sys/class/gpio/
+export  gpio60  gpiochip512  gpiochip544  gpiochip576  gpiochip608  unexport
+
+$ ls /sys/class/gpio/gpio60/
+direction  edge  value  ...
 ```
+
+Mới xuất hiện thư mục `gpio60/` với các file:
+- `direction` - "in" hoặc "out"
+- `value` - "0" hoặc "1"
+- `edge` - "none", "rising", "falling", "both"
 
 **Ý nghĩa**: Mỗi file trong `/sys` tương ứng một thuộc tính phần cứng. Đọc/ghi file = đọc/ghi thuộc tính.
 
@@ -323,6 +329,7 @@ Chi tiết sẽ học ở **Bài 16 - Device Tree**.
 
 LED USR0 trên BBB nối vào `GPIO1_21` → số Linux = `(1 × 32) + 21 = 53`
 
+**Cách 1: Dùng GPIO interface** (cần export trước):
 ```bash
 # Bước 1: Export GPIO 53
 echo 53 > /sys/class/gpio/export
@@ -340,7 +347,19 @@ echo 0 > /sys/class/gpio/gpio53/value
 echo 53 > /sys/class/gpio/unexport
 ```
 
-Chuyện gì xảy ra bên trong?
+**Cách 2: Dùng LED interface** (thường sẵn có, không cần export):
+```bash
+# Kiểm tra LED sẵn có
+ls /sys/class/leds/
+
+# Bật USR0 (nếu có beaglebone:green:usr0)
+echo 1 > /sys/class/leds/beaglebone:green:usr0/brightness
+
+# Tắt USR0
+echo 0 > /sys/class/leds/beaglebone:green:usr0/brightness
+```
+
+Chuyện gì xảy ra bên trong (cách 1)?
 
 ```
 echo 1 > /sys/class/gpio/gpio53/value

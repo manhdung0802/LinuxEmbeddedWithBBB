@@ -6,9 +6,9 @@
 ---
 
 ## Trạng thái hiện tại
-- **Bài học tiếp theo**: Bài 3 - Linux cơ bản cho embedded
+- **Bài học tiếp theo**: Bài 4 - Memory-mapped I/O (`/dev/mem`, `mmap()`)
 - **Giai đoạn**: 1 - Nền tảng
-- **Tổng số buổi học**: 2
+- **Tổng số buổi học**: 3
 
 ---
 
@@ -48,6 +48,27 @@
 	- Hiểu mỗi GPIO module có vùng địa chỉ riêng và cùng một layout thanh ghi
 - **Câu hỏi kiểm tra**: ✅ Đã trả lời tốt; câu PMIC được bổ sung trong phần giải thích
 - **Bài tiếp theo**: Bài 3 - Linux cơ bản cho embedded
+
+### Buổi 3 - 2026-03-26
+- **Chủ đề**: Linux cơ bản cho Embedded
+- **Bài học số**: 3
+- **Nội dung chính**:
+	- Hệ thống thư mục Linux embedded: `/dev`, `/sys`, `/proc`
+	- Kết nối BBB qua serial/SSH và các lệnh shell nền tảng
+	- Cơ chế sysfs GPIO và cách chuyển đổi `GPIOx_y` sang số GPIO Linux
+	- Device Tree ở mức khái niệm: `.dts` -> `.dtb` -> U-Boot nạp -> kernel đọc
+	- So sánh các cách truy cập phần cứng: sysfs, device file, mmap, kernel module
+- **Kiến thức đã nắm**:
+	- Xác định đúng công thức GPIO Linux: `module * 32 + bit` (ví dụ `GPIO2_3 = 67`)
+	- Hiểu lỗi quyền ghi sysfs: `Permission denied` khi chưa có quyền root
+	- Hiểu tình huống thực tế khi chỉ thấy `export`, `unexport`, `gpiochip*` trong `/sys/class/gpio`
+	- Biết rằng thư mục `gpioN` chỉ xuất hiện sau khi export thành công
+	- Hiểu đúng vai trò Device Tree: mô tả phần cứng cho kernel, thường do vendor/dev embedded tạo và duy trì
+- **Thắc mắc/Lưu ý**:
+	- Gặp lỗi `invalid GPIO 53` khi export, cần kiểm tra GPIO hợp lệ theo `gpiochip` base, pinmux và trạng thái driver/kernel
+	- Có thể dùng interface LED (`/sys/class/leds/...`) để kiểm chứng nhanh trước khi đi sâu GPIO generic
+- **Câu hỏi kiểm tra**: ✅ Đã trả lời tốt; cần chuẩn hóa thêm thuật ngữ ở `/dev/mem` và vai trò sysfs/driver
+- **Bài tiếp theo**: Bài 4 - Memory-mapped I/O (`/dev/mem`, `mmap()`)
 
 <!--
 FORMAT cho mỗi buổi:

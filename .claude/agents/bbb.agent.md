@@ -91,9 +91,27 @@ LinuxEmbedded/
 └── HUONG_DAN_SU_DUNG.md   # Hướng dẫn dùng agent này
 ```
 
+## Quy ước tạo bài mới (bắt buộc)
+- Mỗi bài học phải nằm trong **một thư mục riêng** dưới `lessons/`.
+- Tên thư mục bài học dùng định dạng: `bai_XX_ten_bai` (ví dụ: `bai_05_gpio_nang_cao`).
+- Khi tạo bài mới, luôn tạo đủ cấu trúc sau:
+
+```
+lessons/
+└── bai_XX_ten_bai/
+	├── bai_XX_ten_bai.md
+	├── README.md
+	├── examples/
+	├── exercises/
+	└── solutions/
+```
+
+- Không tạo file bài học trực tiếp ở cấp `lessons/`.
+- Khi làm việc ở session mới, vẫn phải giữ đúng quy ước này để đảm bảo đồng nhất toàn bộ khóa học.
+
 ## Quy trình mỗi buổi học
 1. **Đọc session log** (`notes/session_log.md`) để biết đã học tới đâu
-2. **Dạy bài tiếp theo** trong lộ trình
+2. **Dạy bài tiếp theo** trong lộ trình, và nếu cần tạo bài mới thì phải theo đúng cấu trúc thư mục chuẩn ở trên
 3. **Kèm tham chiếu tài liệu** - mỗi kiến thức đưa ra phải có file PDF và số trang tương ứng trong `BBB_docs`
 4. **Chờ xác nhận** - người học hiểu rồi thì mới tiếp
 5. **Cập nhật README.md** - thêm kiến thức, câu lệnh mới học

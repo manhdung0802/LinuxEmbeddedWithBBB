@@ -36,6 +36,54 @@ register_address = base_address + offset
 	- Bare-metal: truy cập trực tiếp phần cứng, timing tốt hơn, nhưng phải tự xử lý nhiều thứ.
 	- Linux: có kernel quản lý driver và virtual memory, thuận tiện hơn cho hệ thống phức tạp.
 
+### Bài 2 - Tổng quan phần cứng BeagleBone Black
+
+- BBB là một board hoàn chỉnh, không chỉ là AM335x: có DDR3, eMMC, PMIC, Ethernet PHY, USB PHY, oscillator và header mở rộng P8/P9.
+- Hai header P8/P9 là giao diện để đưa tín hiệu nội của AM335x ra ngoài board.
+- Khái niệm quan trọng nhất là **pinmux**: một chân vật lý có thể đảm nhiệm nhiều chức năng (GPIO/UART/I2C/SPI/PWM...).
+- Control Module (`0x44E10000`) là nơi cấu hình pad/pinmux trước khi dùng GPIO hoặc peripheral tương ứng.
+- Với GPIO:
+	- `GPIOx_y` nghĩa là module `x`, bit `y`
+	- Mỗi module GPIO có vùng địa chỉ riêng và layout thanh ghi giống nhau
+	- Các thanh ghi dữ liệu quan trọng: `GPIO_OE`, `GPIO_DATAIN`, `GPIO_DATAOUT`, `GPIO_SETDATAOUT`, `GPIO_CLEARDATAOUT`
+- Trình tự kiểm tra khi thao tác chân ngoài:
+	1. Tra đúng mapping chân trong bảng P8/P9
+	2. Cấu hình pinmux đúng mode
+	3. Bật clock module
+	4. Đọc/ghi đúng thanh ghi và bit
+
+### Bài 3 - Linux cơ bản cho Embedded
+
+- Cấu trúc thư mục quan trọng khi làm embedded Linux:
+	- `/dev`: thiết bị dạng file (UART, I2C, SPI, eMMC, `/dev/mem`)
+	- `/sys`: thuộc tính thiết bị do kernel export (sysfs)
+	- `/proc`: thông tin runtime của kernel và process
+
+- Sysfs GPIO thực tế:
+	- Ban đầu thường chỉ có `export`, `unexport`, `gpiochip*`
+	- Thư mục `gpioN` chỉ xuất hiện sau khi export thành công
+	- Cần quyền root khi ghi vào sysfs node nhạy cảm
+
+- Công thức đổi tên GPIO từ TRM sang Linux:
+
+```text
+linux_gpio_number = (module * 32) + bit
+```
+
+Ví dụ:
+	- `GPIO2_3 = 67`
+	- `GPIO1_29 = 61`
+
+- Device Tree:
+	- `.dts` là file text mô tả phần cứng
+	- Biên dịch thành `.dtb`
+	- U-Boot nạp `.dtb`, kernel đọc để tạo thiết bị/driver tương ứng
+
+- Bài học rút ra từ thực hành:
+	- Lỗi `Permission denied` khi ghi sysfs là lỗi quyền
+	- Lỗi `invalid GPIO` thường liên quan cấu hình kernel/driver/pinmux hoặc GPIO không thuộc dải hợp lệ
+	- Nên kiểm tra nhanh bằng `/sys/class/leds/` trước khi debug GPIO generic
+
 ---
 
 ## Giai đoạn 2: Ngoại vi cơ bản
