@@ -1,0 +1,2 @@
+/* spi_mcp3204.c - đọc ADC 12-bit MCP3204 qua SPI0 */
+/* Xem chi tiết trong bai_10_spi.md, Section 6 */

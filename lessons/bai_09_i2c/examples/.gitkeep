@@ -1,0 +1,2 @@
+/* i2c_read_tmp102.c - đọc cảm biến nhiệt độ TMP102 qua I2C1 */
+/* Xem chi tiết trong bai_09_i2c.md, Section 6 */
