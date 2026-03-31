@@ -250,6 +250,82 @@ module_init(mychar_init);
 module_exit(mychar_exit);
 ```
 
+### Giải thích chi tiết từng dòng code
+
+a) **Header includes**:
+- `<linux/cdev.h>` — cung cấp `struct cdev`, `cdev_init()`, `cdev_add()`, `cdev_del()`. Đây là API quản lý character device trong kernel.
+- `<linux/fs.h>` — `struct file_operations`, `alloc_chrdev_region()`, `unregister_chrdev_region()`. Mọi driver đều cần header này.
+- `<linux/device.h>` — `class_create()`, `device_create()` để tạo `/dev/mychar` tự động qua udev.
+- `<linux/uaccess.h>` — `copy_to_user()`, `copy_from_user()` — hàm truyền dữ liệu an toàn giữa kernel space và userspace.
+
+b) **Global variables — device identity**:
+- `static dev_t dev_num` — kiểu `dev_t` chứa **major + minor number** packed trong 1 số 32-bit. Dùng `MAJOR(dev_num)` và `MINOR(dev_num)` để tách.
+- `static struct cdev my_cdev` — cấu trúc đại diện cho character device, liên kết major/minor với `file_operations`.
+- `static struct class *my_class` — device class (hiện trong `/sys/class/myclass/`), cần cho udev tự tạo `/dev/mychar`.
+
+c) **`mychar_open()` và `mychar_release()`**:
+- Được gọi khi userspace gọi `open("/dev/mychar")` và `close(fd)`.
+- `struct inode *inode` — đại diện cho file trên disk (VFS inode), chứa major/minor number.
+- `struct file *filp` — đại diện cho **mỗi lần open** (file pointer). Cùng 1 device file, mở 2 lần = 2 `struct file` khác nhau.
+- Trả về `0` = thành công, giá trị âm = error code.
+
+d) **`mychar_read()` — truyền data kernel → userspace**:
+```c
+if (*ppos >= buf_len) return 0;   /* EOF */
+```
+- `*ppos` (position pointer) — vị trí đọc hiện tại. Khi `*ppos >= buf_len`, đã đọc hết → trả `0` (EOF).
+- `min((int)(buf_len - *ppos), (int)count)` — chọn số byte nhỏ hơn giữa: còn bao nhiêu data và user muốn bao nhiêu.
+- **`copy_to_user(ubuf, kernel_buf + *ppos, bytes_to_copy)`** — copy an toàn từ kernel buffer sang user buffer. Trả về **số byte chưa copy** (0 = OK). **KHÔNG ĐƯỢC** dùng `memcpy()` trực tiếp vì:
+  1. User pointer có thể không hợp lệ (NULL, unmapped)
+  2. Page fault trong kernel context cần xử lý đặc biệt
+  3. Pointer có thể trỏ về kernel space → **bảo mật**!
+- `*ppos += bytes_to_copy` — cập nhật vị trí đọc.
+
+e) **`mychar_write()` — truyền data userspace → kernel**:
+- `copy_from_user(kernel_buf, ubuf, bytes_to_copy)` — copy ngược lại từ user → kernel.
+- `kernel_buf[bytes_to_copy] = '\0'` — null-terminate string (quan trọng vì `pr_info` sẽ in buffer).
+- `buf_len = bytes_to_copy` — lưu độ dài data mới.
+
+f) **ioctl — custom commands**:
+- `#define MYCHAR_IOC_MAGIC 'M'` — "magic number" unique cho driver này, tránh conflict.
+- `_IO(magic, nr)` — command không có argument.
+- `_IOR(magic, nr, type)` — command **đọc** data từ kernel (R = Read from driver's perspective).
+- Trong `mychar_ioctl()`, `switch(cmd)` phân loại command:
+  - `MYCHAR_IOC_RESET` — xóa buffer, không cần argument.
+  - `MYCHAR_IOC_GET_LEN` — trả `buf_len` về userspace qua `copy_to_user()`.
+  - `default: return -ENOTTY` — "Inappropriate ioctl for device" (error code chuẩn cho ioctl không hợp lệ).
+
+g) **`struct file_operations mychar_fops`**:
+```c
+.owner = THIS_MODULE,   /* tăng refcount khi device đang mở, ngăn rmmod */
+```
+- Bảng mapping: khi userspace gọi `read()` → kernel gọi `.read = mychar_read`.
+- `.unlocked_ioctl` — phiên bản ioctl **không giữ BKL** (Big Kernel Lock). Phiên bản cũ `.ioctl` đã bị loại bỏ.
+
+h) **`mychar_init()` — 5 bước khởi tạo**:
+1. `alloc_chrdev_region(&dev_num, 0, 1, DEVICE_NAME)` — kernel tự chọn major number (base minor = 0, count = 1). Tốt hơn `register_chrdev_region()` (phải chọn major thủ công).
+2. `cdev_init(&my_cdev, &mychar_fops)` — liên kết cdev với file_operations.
+3. `cdev_add(&my_cdev, dev_num, 1)` — đăng ký cdev vào VFS, từ giờ kernel biết device này tồn tại.
+4. `class_create(THIS_MODULE, CLASS_NAME)` — tạo `/sys/class/myclass/`, udev cần info này.
+5. `device_create(my_class, NULL, dev_num, NULL, DEVICE_NAME)` — trigger udev tạo `/dev/mychar` tự động.
+
+i) **Error handling với `goto`**:
+```c
+err_device:  class_destroy(my_class);
+err_class:   cdev_del(&my_cdev);
+err_cdev:    unregister_chrdev_region(dev_num, 1);
+```
+- Pattern **"reverse cleanup"** — nếu bước 4 fail, cleanup bước 3, 2, 1 (theo thứ tự ngược).
+- Đây là pattern **cực kỳ phổ biến** trong kernel code. `goto` trong context này là **best practice**, không phải code smell.
+
+j) **`mychar_exit()` — cleanup theo thứ tự ngược**:
+```
+device_destroy → class_destroy → cdev_del → unregister_chrdev_region
+```
+- **LUÔN** cleanup theo thứ tự **ngược lại** với init. Nếu `device_destroy` trước `class_destroy`, device bị remove trước class — đúng dependency.
+
+> **Bài học**: Character device driver là nền tảng của mọi Linux driver. Nắm vững `file_operations` + `copy_to/from_user` + `cdev` API là đủ để viết driver cho hầu hết thiết bị.
+
 ---
 
 ## 5. Userspace Test Program

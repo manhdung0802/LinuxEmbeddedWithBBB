@@ -287,6 +287,58 @@ int main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code
+
+a) **`#include <linux/watchdog.h>`**:
+- Header chứa các macro `WDIOC_*` (ioctl commands) và `struct watchdog_info`.
+- Đây là **userspace header** (không phải kernel module header).
+
+b) **`open("/dev/watchdog", O_RDWR)`**:
+- **QUAN TRỌNG**: Mở file này = **bật watchdog timer ngay lập tức**! Từ lúc này phải kick định kỳ.
+- Nếu process crash mà không close đúng cách, watchdog sẽ **reset board** sau timeout.
+
+c) **`ioctl(wfd, WDIOC_GETSUPPORT, &info)`**:
+- Lấy thông tin watchdog: identity, firmware version, và option flags.
+- `info.options` cho biết driver hỗ trợ gì (set timeout, magic close, pre-timeout...).
+
+d) **`ioctl(wfd, WDIOC_SETTIMEOUT, &new_timeout)`**:
+- Set timeout mới. Chỉ hoạt động nếu driver có flag `WDIOF_SETTIMEOUT`.
+- Driver có thể **làm tròn** giá trị (ví dụ: yêu cầu 25s, driver set 30s). Luôn đọc lại bằng `WDIOC_GETTIMEOUT` để xác nhận.
+
+e) **Kick watchdog**:
+```c
+write(wfd, "\0", 1);   /* ghi bất kỳ byte */
+```
+- Hoặc dùng `ioctl(wfd, WDIOC_KEEPALIVE, NULL)` — cả hai đều reset timer về giá trị timeout.
+- Kick interval phải < timeout. Khuyến nghị: **kick ở 1/3 timeout** để có margin an toàn.
+
+f) **Magic close `'V'`**:
+```c
+write(wfd, "V", 1);
+close(wfd);
+```
+- Ghi ký tự `'V'` (magic character) ngay trước `close()` để báo driver: "đây là intentional close, đừng reset".
+- Nếu `close()` mà **không ghi 'V'** → driver giữ watchdog chạy → **board sẽ reset** sau timeout!
+- Chỉ hoạt động nếu driver có `WDIOF_MAGICCLOSE` flag.
+
+g) **Health check trong watchdog_daemon.c**:
+```c
+if (check_system_health()) { write(wfd, "\0", 1); }  /* kick */
+else { /* không kick → WDT sẽ reset board */ }
+```
+- Đây là logic cốt lõi: chỉ kick khi hệ thống **hoạt động bình thường**.
+- `check_system_health()` kiểm tra: CPU load, disk space, network connectivity...
+- Nếu health check fail → ngưng kick → watchdog expire → **hardware reset** → board khởi động lại từ đầu.
+
+h) **`WDIOF_CARDRESET` trong bootstatus**:
+```c
+if (bootstatus & WDIOF_CARDRESET)
+    printf("Last reset was caused by watchdog!\n");
+```
+- Kiểm tra xem lần boot trước có phải do watchdog reset không → log hoặc thông báo.
+
+> **Bài học**: Watchdog là **lới bảo vệ cuối cùng** cho embedded system. Không có watchdog, một bug nhỏ có thể khiến device trở thành "gạch" vĩnh viễn nếu không có ai đến nhấn reset.
+
 ---
 
 ## 6. Kiểm tra Watchdog qua /sys

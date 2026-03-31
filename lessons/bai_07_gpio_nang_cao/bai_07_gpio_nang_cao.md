@@ -217,6 +217,68 @@ int main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code
+
+#### a) Hàm `sysfs_write()` — ghi chuỗi vào file sysfs
+
+```c
+static int sysfs_write(const char *path, const char *val) {
+    int fd = open(path, O_WRONLY);  // Mở file chỉ để ghi (O_WRONLY)
+    write(fd, val, strlen(val));     // Ghi chuỗi val vào file
+    close(fd);                       // Đóng file ngay sau khi ghi
+}
+```
+
+> Hàm tiện ích để thao tác sysfs — mỗi file sysfs nhận một chuỗi text đơn giản.
+
+#### b) Thiết lập GPIO qua sysfs
+
+```c
+sysfs_write(EXPORT_PATH, GPIO_NUM);  // echo "7" > /sys/class/gpio/export
+                                     // Yêu cầu kernel tạo thư mục /sys/class/gpio/gpio7/
+usleep(100000);                      // Chờ 100ms — cần thời gian để kernel tạo xong các file sysfs
+
+sysfs_write(DIR_PATH, "in");         // echo "in" > .../direction → cấu hình GPIO7 là input
+sysfs_write(EDGE_PATH, "falling");   // echo "falling" > .../edge → phát hiện cạnh xuống
+                                     // Các giá trị hợp lệ: "none", "rising", "falling", "both"
+```
+
+#### c) Thiết lập `poll()` — chờ interrupt
+
+```c
+pfd.fd = open(GPIO_PATH, O_RDONLY);  // Mở file value ở chế độ đọc
+pfd.events = POLLPRI | POLLERR;      // POLLPRI = priority data (dùng cho GPIO interrupt)
+                                     // POLLERR = lỗi — cần thiết để phát hiện sự cố
+                                     // KHÔNG dùng POLLIN — GPIO edge dùng POLLPRI
+```
+
+```c
+read(pfd.fd, buf, sizeof(buf));      // Đọc lần đầu để clear trạng thái pending
+                                     // Nếu bỏ qua bước này, poll() có thể return ngay
+                                     // vì kernel coi trạng thái ban đầu là "có sự kiện"
+```
+
+#### d) Vòng lặp chờ interrupt
+
+```c
+int ret = poll(&pfd, 1, -1);
+// &pfd: con trỏ tới mảng pollfd (ở đây chỉ 1 phần tử)
+// 1: số file descriptor cần theo dõi
+// -1: timeout vô hạn — block cho đến khi có sự kiện
+//     (nếu muốn timeout 3 giây: truyền 3000)
+```
+
+```c
+if (pfd.revents & POLLPRI) {         // Kiểm tra có phải sự kiện GPIO interrupt không
+    lseek(pfd.fd, 0, SEEK_SET);      // Tua file về đầu — bắt buộc trước khi read lại
+                                     // Vì lần read trước đã đẩy con trỏ file đi
+    read(pfd.fd, buf, sizeof(buf));  // Đọc giá trị GPIO: "0\n" hoặc "1\n"
+    buf[1] = '\0';                   // Cắt chuỗi sau ký tự đầu để chỉ giữ '0' hoặc '1'
+}
+```
+
+> **Tại sao dùng `poll()` chứ không dùng vòng lặp `read()`?** Vì `poll()` block mà không dùng CPU — process ở trạng thái sleeping cho đến khi kernel phát sự kiện GPIO edge. Polling bằng `while(read(...))` sẽ chiếm 100% CPU.
+
 ---
 
 ## 6. Debounce bằng software (khi không dùng hardware)

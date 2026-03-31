@@ -192,6 +192,58 @@ Giả sử bạn thiết kế board có:
 };
 ```
 
+### Giải thích chi tiết từng phần DTS
+
+a) **`#include "am335x-boneblack.dts"`**:
+- Kế thừa toàn bộ DTS của BBB gốc (SoC definitions, pinmux, peripherals). Board custom chỉ **thêm/override** phần cần thiết.
+
+b) **`compatible` trong root node**:
+```dts
+compatible = "mycompany,bbb-sensor-board", "ti,am335x-bone-black", ...;
+```
+- Danh sách từ **specific → generic**. Kernel tìm driver khớp từ trái sang phải.
+- Nếu không có driver cho `"mycompany,bbb-sensor-board"`, kernel fallback xuống `"ti,am335x-bone-black"`.
+
+c) **`gpio-leds` node**:
+- `compatible = "gpio-leds"` — dùng kernel driver có sẵn (`drivers/leds/leds-gpio.c`). **Không cần viết driver mới!**
+- `gpios = <&gpio1 21 GPIO_ACTIVE_HIGH>` — phandle `&gpio1` + pin 21 + active high. `GPIO_ACTIVE_LOW` sẽ đảo logic.
+- `linux,default-trigger = "heartbeat"` — kernel tự blink LED theo CPU load. Các trigger khác: `"timer"`, `"default-on"`, `"mmc0"`.
+
+d) **`gpio-keys` node**:
+- `compatible = "gpio-keys"` — driver có sẵn (`drivers/input/keyboard/gpio_keys.c`).
+- `linux,code = <KEY_ENTER>` — key code gửi vào input subsystem. Định nghĩa trong `<linux/input-event-codes.h>`.
+- `wakeup-source` — boolean property (không có giá trị) — cho phép button đánh thức board từ suspend.
+
+e) **Pinmux `pinctrl-single,pins`**:
+```dts
+0x054 (PIN_OUTPUT | MUX_MODE7)
+```
+- `0x054` = offset trong Control Module (spruh73q.pdf, Table 9-7) cho pin `gpmc_a5`.
+- `MUX_MODE7` = mode 7 = GPIO function (mỗi pin AM335x có 8 modes, 0-7).
+- `PIN_INPUT_PULLUP` = input + pull-up resistor (cho button: trạng thái mặc định = HIGH).
+
+f) **I2C child node**:
+```dts
+tmp102@48 {
+    compatible = "ti,tmp102";
+    reg = <0x48>;
+};
+```
+- `@48` = unit address = địa chỉ I2C (0x48). Phải khớp với giá trị `reg`.
+- `#size-cells = <0>` trong parent (`&i2c1`) nên `reg` chỉ có address, không có size.
+
+g) **SPI child node**:
+```dts
+mcp3204@0 {
+    reg = <0>;                    /* CS0 */
+    spi-max-frequency = <1000000>; /* 1MHz */
+};
+```
+- `reg = <0>` = chip select 0 (SPI dùng `reg` cho CS, không phải address).
+- `vref-supply = <&vdd_3v3>` — phandle đến regulator node cung cấp 3.3V reference.
+
+> **Bài học**: Với DTS đúng, nhiều device có thể dùng **driver có sẵn** trong kernel (gpio-leds, gpio-keys, tmp102, mcp320x) mà không cần viết code. DTS là "kết nối" giữa hardware và driver.
+
 ---
 
 ## 4. DT Binding Documentation

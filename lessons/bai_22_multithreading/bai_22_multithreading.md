@@ -82,6 +82,36 @@ int main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code
+
+a) **`#include <pthread.h>`**:
+- Header POSIX threads. Khi link phải thêm `-lpthread` (hoặc `-pthread`).
+- API POSIX: trả về **0 = success**, **giá trị dương = error code** (khác với syscall trả về -1 + errno).
+
+b) **`void *sensor_thread(void *arg)`**:
+- Thread function **bắt buộc** có signature: nhận `void *`, trả `void *`.
+- `void *arg` = tham số truyền vào khi `pthread_create()`. Cast về kiểu cần: `*(int *)arg`.
+
+c) **Return value qua heap**:
+```c
+int *result = malloc(sizeof(int));
+*result = sensor_id * 100;
+return result;
+```
+- **KHÔNG** được trả về con trỏ đến biến local (stack) — stack của thread bị giải phóng khi thread kết thúc.
+- Dùng `malloc()` (heap) hoặc biến `static` — caller phải `free()` sau khi dùng.
+
+d) **`pthread_create(&tid[i], NULL, sensor_thread, &ids[i])`**:
+- Tham số 1: `&tid[i]` — lưu thread ID.
+- Tham số 2: `NULL` — dùng attribute mặc định (stack size, scheduling policy).
+- Tham số 3: hàm thread.
+- Tham số 4: `&ids[i]` — argument truyền vào. Lưu ý: truyền **địa chỉ** của phần tử riêng, không phải `&i` (vì `i` thay đổi trong vòng lặp → race condition).
+
+e) **`pthread_join(tid[i], &retval)`**:
+- Block cho đến khi thread kết thúc. `retval` nhận giá trị return của thread function.
+- Nếu không join, thread trở thành **"zombie thread"** (tương tự zombie process).
+- Thay thế: `pthread_detach(tid)` — thread tự cleanup khi xong (không cần join).
+
 ```bash
 # Build (cần -lpthread)
 gcc thread_basic.c -o thread_basic -lpthread
@@ -331,6 +361,35 @@ int main(void)
     return 0;
 }
 ```
+
+### Giải thích chi tiết từng dòng code (producer_consumer.c)
+
+a) **CircularQueue struct**:
+- `data[QUEUE_SIZE]` — mảng vòng tròn lưu sensor values.
+- `head` = vị trí đọc (consumer), `tail` = vị trí ghi (producer), `count` = số phần tử hiện tại.
+- `mutex` bảo vệ toàn bộ struct. `not_empty` và `not_full` là condition variable.
+- `PTHREAD_MUTEX_INITIALIZER` / `PTHREAD_COND_INITIALIZER` — khởi tạo tĩnh (static init), không cần gọi `pthread_mutex_init()`.
+
+b) **`pthread_cond_wait(&queue.not_full, &queue.mutex)`**:
+- Hàm này làm **3 việc atomic**: (1) unlock mutex, (2) block thread, (3) khi được wake → lock lại mutex.
+- Tại sao dùng `while` thay vì `if`? Vì có **spurious wakeup** — thread có thể bị dậnh dậy dù condition chưa thoả. `while` kiểm tra lại condition sau mỗi wakeup.
+
+c) **`queue.tail = (queue.tail + 1) % QUEUE_SIZE`**:
+- Arithmetic modulo để wrap quanh mảng vòng tròn: 0, 1, 2, ..., 9, 0, 1, ...
+
+d) **`pthread_cond_signal(&queue.not_empty)`**:
+- Wake up **một** thread đang chờ trên `not_empty` (consumer).
+- Dùng `pthread_cond_broadcast()` để wake **tất cả** threads chờ.
+- Trong `producer()` khi xong: dùng `broadcast` để đảm bảo mọi consumer đều thấy `done = 1`.
+
+e) **Flow hoạt động**:
+```
+Producer: lock → chờ (if full) → ghi data → signal consumer → unlock
+Consumer: lock → chờ (if empty) → đọc data → signal producer → unlock
+```
+- 2 consumers chia sẻ workload tự động — consumer nào rảnh trước sẽ nhận data.
+
+> **Bài học**: Producer-consumer là pattern **cực kỳ phổ biến** trong embedded: sensor thread (producer) + processing thread (consumer). Kết hợp mutex + condition variable là cách chuẩn để implement thread-safe queue.
 
 ---
 

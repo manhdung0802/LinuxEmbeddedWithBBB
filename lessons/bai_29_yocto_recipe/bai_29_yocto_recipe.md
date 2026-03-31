@@ -181,6 +181,34 @@ int main(int argc, char *argv[])
 }
 ```
 
+### Giải thích chi tiết từng dòng code (led_blinker.c)
+
+a) **`#define LED_PATH "/sys/class/leds/beaglebone:green:usr0"`**:
+- Sử dụng **sysfs LED interface** thay vì truy cập GPIO trực tiếp. Đây là cách chuẩn trên Linux — không cần root, không cần `/dev/mem`.
+- Kernel driver `leds-gpio` (kích hoạt qua Device Tree `gpio-leds`) tạo interface này tự động.
+
+b) **`write_sysfs()` helper**:
+- Mở file sysfs → ghi giá trị → đóng. Sysfs file không cần `lseek` (khác với `/sys/class/gpio/gpioXX/value` phải `lseek` khi dùng `poll`).
+- Mỗi lần ghi phải `open` + `close` vì sysfs driver xử lý dữ liệu ngay khi `write`.
+
+c) **`write_sysfs(LED_PATH "/trigger", "none")`**:
+- Tắt trigger tự động (heartbeat, mmc0, timer...) để kiểm soát LED thủ công.
+- Nếu không tắt, kernel trigger sẽ ghi đè `brightness` của chúng ta.
+
+d) **`write_sysfs(LED_PATH "/brightness", "1")` / `"0"`**:
+- Ghi `"1"` = bật LED, `"0"` = tắt LED.
+- Giá trị có thể là `0-255` cho LED hỗ trợ PWM dimming.
+
+e) **Signal handling + cleanup**:
+- `signal(SIGTERM, sig_handler)` — quan trọng cho systemd service. Khi `systemctl stop`, systemd gửi `SIGTERM`.
+- Cleanup tắt LED → sau `systemctl stop`, LED không bị kẹt ở trạng thái bật.
+
+f) **`atoi(argv[1])` cho interval**:
+- Cho phép truyền interval từ command line hoặc systemd ExecStart.
+- Trong service file: `ExecStart=/usr/bin/led_blinker 500` = 500ms interval.
+
+> **Bài học**: Code dùng sysfs interface (đơn giản, portable) thay vì mmap/ioremap (đã học ở bài 4, 17). Trong Yocto image, đây là cách tiêu chuẩn cho application-level GPIO access.
+
 ### 4.3 led-blinker.service
 
 ```ini

@@ -231,6 +231,84 @@ static struct platform_driver myled_driver = {
 module_platform_driver(myled_driver);
 ```
 
+### Giải thích chi tiết từng dòng code
+
+a) **Header includes**:
+- `<linux/platform_device.h>` — cung cấp `struct platform_driver`, `platform_get_resource()`, `platform_set_drvdata()`. Core API cho platform driver.
+- `<linux/of.h>` — Device Tree API: `of_property_read_u32()`, `struct of_device_id`. "of" = Open Firmware (tiền thân của Device Tree).
+- `<linux/io.h>` — `devm_ioremap_resource()`, `ioread32()`, `iowrite32()`.
+- `<linux/resource.h>` — `struct resource` chứa thông tin memory range (start, end, flags).
+
+b) **`struct myled_data` — per-device private data**:
+```c
+struct myled_data {
+    void __iomem *base;     /* virtual address GPIO base */
+    u32 gpio_pin;           /* pin number từ DT */
+    struct device *dev;
+};
+```
+- Mỗi **instance** của device (mỗi DT node khớp compatible) có 1 `myled_data` riêng.
+- Pattern này cho phép 1 driver phục vụ **nhiều device** cùng lúc (ví dụ: 2 LED trên 2 GPIO khác nhau).
+
+c) **`myled_probe()` — hàm cốt lõi**:
+- **Khi nào được gọi?** Khi kernel scan Device Tree, tìm thấy node có `compatible = "bbb-tutorial,myled"` khớp với `of_match_table` → gọi `probe()`.
+- `struct platform_device *pdev` — chứa mọi thông tin từ DT node: reg, interrupts, properties.
+
+d) **Bước 1: Đọc DT property**:
+```c
+of_property_read_u32(pdev->dev.of_node, "my-gpio-pin", &gpio_pin);
+```
+- `pdev->dev.of_node` — con trỏ đến DT node tương ứng.
+- Đọc property `my-gpio-pin = <21>` từ DTS, lưu vào `gpio_pin`.
+- Trả về `0` = OK, khác 0 = property không tồn tại → driver báo lỗi và return `-EINVAL`.
+
+e) **Bước 2: `devm_kzalloc()`**:
+```c
+data = devm_kzalloc(&pdev->dev, sizeof(*data), GFP_KERNEL);
+```
+- `devm_` prefix = **device-managed** — kernel tự `kfree()` khi device bị remove. **Không cần** gọi `kfree()` thủ công.
+- `kzalloc` = `kmalloc` + `memset(0)` — cấp phát bộ nhớ kernel đã zero-initialized.
+- `GFP_KERNEL` = flag cho phép sleep trong khi chờ bộ nhớ (chỉ dùng trong process context, **không dùng trong interrupt**).
+
+f) **Bước 3-4: Lấy và map memory resource**:
+```c
+res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+data->base = devm_ioremap_resource(&pdev->dev, res);
+```
+- `platform_get_resource(pdev, IORESOURCE_MEM, 0)` — lấy entry đầu tiên (index 0) của `reg` property trong DT. Với `reg = <0x4804C000 0x1000>`, trả về `res->start = 0x4804C000`, `res->end = 0x4804CFFF`.
+- `devm_ioremap_resource()` — kết hợp `request_mem_region()` + `ioremap()` trong 1 lệnh. Tự động `iounmap()` khi remove.
+- `IS_ERR(data->base)` — kiểm tra lỗi theo convention kernel: pointer lỗi được encode thành giá trị âm trong vùng địa chỉ cao.
+
+g) **Bước 5-6: Config GPIO và bật LED**:
+```c
+u32 oe = ioread32(data->base + GPIO_OE);
+oe &= ~(1 << gpio_pin);
+iowrite32(oe, data->base + GPIO_OE);
+iowrite32(1 << gpio_pin, data->base + GPIO_SETDATAOUT);
+```
+- Giống bài 17 (gpio_module.c), nhưng dùng `data->base` thay vì global variable → mỗi device instance có base riêng.
+
+h) **`platform_set_drvdata(pdev, data)`**:
+- Lưu con trỏ `data` vào `pdev->dev.driver_data`.
+- Trong `remove()`, gọi `platform_get_drvdata(pdev)` để lấy lại pointer → pattern truyền data giữa `probe()` và `remove()`.
+
+i) **`myled_remove()` — cleanup**:
+- Chỉ cần tắt LED (`iowrite32` vào CLEARDATAOUT).
+- **Không cần** `kfree(data)`, `iounmap(base)` — tất cả `devm_*` resource được tự động free.
+
+j) **`of_match_table` và `module_platform_driver()`**:
+```c
+static const struct of_device_id myled_of_ids[] = {
+    { .compatible = "bbb-tutorial,myled" },
+    { }  /* sentinel */
+};
+```
+- Array kết thúc bằng `{ }` (sentinel entry) — kernel biết đến đây là hết danh sách.
+- `MODULE_DEVICE_TABLE(of, myled_of_ids)` — export thông tin compatible vào module info, cho phép `modprobe` tự load driver đúng.
+- `module_platform_driver(myled_driver)` — macro mở rộng thành `module_init` + `module_exit` đăng ký/hủy platform driver. Giảm boilerplate code.
+
+> **Bài học**: Platform driver kết hợp 3 thành phần: **DTS node** (mô tả hardware), **of_match_table** (matching rule), **probe/remove** (lifecycle). Dùng `devm_*` API để kernel tự quản lý resource → code ngắn gọn, ít bug.
+
 ---
 
 ## 6. devm_* API — Managed Resources

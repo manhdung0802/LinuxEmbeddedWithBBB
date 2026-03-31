@@ -280,6 +280,81 @@ cat /sys/class/thermal/thermal_zone*/temp
 # Output: 27500 (= 27.5°C)
 ```
 
+### Giải thích chi tiết các đoạn DTS
+
+#### a) Node GPIO1 trong `am33xx.dtsi`
+
+```dts
+gpio1: gpio@4804c000 {
+    // gpio1: = label — dùng để tham chiếu bằng &gpio1 ở node khác
+    // gpio@4804c000 = tên@unit-address (unit-address = base address)
+
+    compatible = "ti,omap4-gpio";
+    // Kernel dùng chuỗi này để tìm driver phù hợp
+    // Driver nào có of_match_table chứa "ti,omap4-gpio" sẽ được bind
+
+    ti,hwmods = "gpio1";
+    // Tên hardware module — TI-specific, dùng cho PRCM (clock/reset)
+
+    gpio-controller;
+    // Boolean property: đánh dấu node này là GPIO controller
+
+    #gpio-cells = <2>;
+    // Khi node khác tham chiếu: gpios = <&gpio1 PIN FLAGS>
+    // 2 cell: cell 1 = số pin (0..31), cell 2 = flags (active high/low)
+
+    reg = <0x4804c000 0x1000>;
+    // Vùng register: base = 0x4804c000, size = 0x1000 (4KB)
+    // Kernel dùng để gọi ioremap() ánh xạ vùng này
+
+    interrupts = <98 IRQ_TYPE_LEVEL_HIGH>;
+    // IRQ number 98 (hardware), level-triggered HIGH
+};
+```
+
+#### b) Overlay pinmux fragment
+
+```dts
+fragment@0 {
+    target = <&am33xx_pinmux>;  // Áp dụng lên node pinmux có sẵn
+    __overlay__ {
+        bb_i2c1_pins: pinmux_bb_i2c1_pins {
+            pinctrl-single,pins = <
+                0x15C (PIN_INPUT_PULLUP | MUX_MODE2)
+                // 0x15C = offset trong Control Module
+                //       = CONF_SPI0_CS0 (P9.17 → I2C1_SCL ở Mode 2)
+                // PIN_INPUT_PULLUP = bit 5 (RXACTIVE) + bit 4 (pull-up)
+                // MUX_MODE2 = bit [2:0] = 0b010 = Mode 2
+            >;
+        };
+    };
+};
+```
+
+#### c) Node I2C1 + device con TMP102
+
+```dts
+fragment@1 {
+    target = <&i2c1>;           // Áp dụng lên node i2c1 có sẵn trong am33xx.dtsi
+    __overlay__ {
+        status = "okay";        // Bật module (override "disabled" mặc định)
+        clock-frequency = <100000>;  // I2C 100kHz (Standard Mode)
+
+        #address-cells = <1>;   // Mỗi device con dùng 1 cell cho địa chỉ
+        #size-cells = <0>;      // I2C không có khái niệm "size" cho device
+
+        tmp102: tmp102@48 {
+            // tmp102@48: tên@i2c-address (0x48)
+            compatible = "ti,tmp102";  // Kernel tìm driver có match "ti,tmp102"
+            reg = <0x48>;              // I2C slave address = 0x48
+            // Khi driver match, nó tự đọc reg để biết slave address
+        };
+    };
+};
+```
+
+> **Workflow**: U-Boot nạp DTB → kernel đọc → tìm driver match `compatible` → gọi `probe()` → driver dùng `reg` để ioremap/i2c_new_device.
+
 ---
 
 ## 7. Câu hỏi kiểm tra

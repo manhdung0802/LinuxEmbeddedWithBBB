@@ -287,6 +287,83 @@ int main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code `i2c_read_tmp102.c`
+
+#### a) Các hằng I2C_CON — điều khiển I2C master
+
+```c
+#define I2C_CON_EN  (1 << 15)  // = 0x8000 — Enable I2C module
+#define I2C_CON_MST (1 << 12)  // = 0x1000 — Master mode (không phải slave)
+#define I2C_CON_TRX (1 << 10)  // = 0x0400 — Transmitter mode (1=TX, 0=RX)
+#define I2C_CON_STP (1 << 2)   // = 0x0004 — Phát STOP condition trên bus
+#define I2C_CON_STT (1 << 1)   // = 0x0002 — Phát START condition trên bus
+```
+
+#### b) `i2c_init()` — trình tự khởi tạo
+
+```c
+ctrl[CONF_SPI0_D1 / 4] = 0x32;   // Mode 2 = I2C1_SDA
+// 0x32 = 0b0011_0010:
+//   Bit [2:0] = 0b010 = Mode 2
+//   Bit 4 = 1 → pull-up enable (bắt buộc cho I2C — SDA cần pull-up)
+//   Bit 5 = 1 → RXACTIVE = input enable (SDA là bidirectional)
+```
+
+```c
+i2c1[I2C_CON / 4] = 0;       // Disable module trước khi đổi clock
+i2c1[I2C_SYSC / 4] = 0x2;    // SRST = 1 → soft reset toàn bộ I2C module
+                              // Thanh ghi trở về giá trị mặc định
+```
+
+```c
+i2c1[I2C_PSC / 4] = 3;       // Prescaler = 3 → F_I2C = 48MHz/(3+1) = 12MHz
+i2c1[I2C_SCLL / 4] = 53;     // SCL LOW time = (53+7)/12MHz = 5µs
+i2c1[I2C_SCLH / 4] = 55;     // SCL HIGH time = (55+5)/12MHz = 5µs
+// Tổng: F_SCL = 12MHz / (60+60) = 100kHz (Standard Mode)
+```
+
+#### c) `i2c_read()` — đọc N byte từ slave
+
+```c
+i2c1[I2C_SA / 4] = slave_addr;     // Set địa chỉ slave (ví dụ 0x48 cho TMP102)
+                                    // Đây là địa chỉ 7-bit, hardware tự thêm R/W bit
+i2c1[I2C_DCOUNT / 4] = len;         // Số byte cần nhận (ví dụ 2 cho TMP102)
+```
+
+```c
+i2c1[I2C_CON / 4] = I2C_CON_EN | I2C_CON_MST | I2C_CON_STT;
+// = 0x8000 | 0x1000 | 0x0002 = 0x9002
+// Enable + Master + START — không có TRX → chế độ Receive
+// Hardware tự gửi: START + slave_addr + R bit, rồi đợi ACK
+```
+
+```c
+do {
+    irqstatus = i2c1[I2C_IRQSTATUS / 4];
+    if (irqstatus & I2C_IRQSTATUS_NACK) {  // Slave không trả lời
+        i2c1[I2C_CON / 4] |= I2C_CON_STP;  // Phát STOP để giải phóng bus
+        return -1;
+    }
+} while (!(irqstatus & I2C_IRQSTATUS_RRDY));  // Chờ RRDY=1 (RX data ready)
+```
+
+```c
+buf[i] = (uint8_t)(i2c1[I2C_DATA / 4] & 0xFF);  // Đọc 1 byte từ FIFO
+i2c1[I2C_IRQSTATUS / 4] = I2C_IRQSTATUS_RRDY;    // Clear RRDY bằng cách ghi 1
+// "Write 1 to clear" — cơ chế phổ biến trên ARM: ghi 1 xóa flag, ghi 0 giữ nguyên
+```
+
+#### d) Chuyển đổi nhiệt độ TMP102
+
+```c
+int16_t raw = ((int16_t)(buf[0] << 8) | buf[1]) >> 4;
+// buf[0] = MSB (8 bit cao), buf[1] = LSB (4 bit cao + 4 bit padding)
+// Ghép: buf[0]<<8 | buf[1] = 16-bit raw
+// Dịch phải 4 → bỏ 4 bit padding → còn 12-bit có dấu
+
+float temp = raw * 0.0625f;  // 1 LSB = 0.0625°C (từ datasheet TMP102)
+```
+
 ---
 
 ## 7. I2C từ Linux Userspace (`/dev/i2c-1`)

@@ -61,6 +61,21 @@ Userspace:
 
 **Quan trọng**: Kernel cấp phát một phạm vi virtual address cho mỗi process. Các process khác nhau thấy cùng virtual address nhưng **map tới physical address khác nhau**.
 
+**Giải thích kỹ hơn - tại sao "cùng virtual address nhưng khác physical address"?**
+
+Kernel duy trì một **page table** (bảng trang) riêng cho mỗi process. Khi CPU thực thi lệnh truy cập bộ nhớ, MMU tra page table của process đang chạy để dịch virtual → physical.
+
+```
+Process A:  0x80000000 (virtual)  ──page table A──→  0x0010A000 (physical)
+Process B:  0x80000000 (virtual)  ──page table B──→  0x0020B000 (physical)
+```
+
+- Cùng con số `0x80000000` nhưng hai process trỏ tới **hai vùng RAM vật lý hoàn toàn khác nhau**.
+- Process A không thể đọc/ghi vùng nhớ của Process B → đây là cơ chế **cô lập bộ nhớ** (memory isolation), giúp hệ thống ổn định và bảo mật.
+- Nếu muốn chia sẻ dữ liệu giữa hai process, phải dùng `mmap(MAP_SHARED)` hoặc các cơ chế IPC — kernel sẽ ánh xạ cùng một physical page vào page table của cả hai process.
+
+**Liên hệ với `/dev/mem` + `mmap()`**: Khi bạn gọi `mmap()` trên `/dev/mem`, kernel thêm một entry vào page table của process hiện tại, ánh xạ physical address phần cứng (ví dụ thanh ghi GPIO) vào một vùng virtual address — mapping này chỉ có tác dụng trong process đã gọi.
+
 ### 3.3 File `/dev/mem` - cửa sau vào bộ nhớ vật lý
 
 ```
@@ -73,6 +88,23 @@ Userspace:
 
 Ví dụ:
 - Offset `0x4804C13C` trong `/dev/mem` = thanh ghi GPIO_DATAOUT của GPIO1
+
+**Cách xác định địa chỉ `0x4804C13C`**: Tra từ **TRM (Technical Reference Manual)** của AM335x:
+
+1. **Tra Memory Map** (TRM Chapter 2) → tìm base address của GPIO1:
+   - GPIO1 base = `0x4804C000`
+2. **Tra Register Map của GPIO module** (TRM Chapter 25) → tìm offset của thanh ghi DATAOUT:
+   - `GPIO_DATAOUT` offset = `0x13C`
+3. **Cộng lại**: `0x4804C000 + 0x13C = 0x4804C13C`
+
+Bạn cũng có thể kiểm chứng trên board:
+```bash
+# Xem vùng I/O mà kernel đã ghi nhận
+sudo grep -i gpio /proc/iomem
+
+# Đọc trực tiếp giá trị thanh ghi (nếu có devmem2)
+sudo devmem2 0x4804C13C w
+```
 
 ### 3.4 Hàm `mmap()` - ánh xạ file → virtual memory
 
@@ -197,41 +229,200 @@ int main() {
 }
 ```
 
-### 4.2 Giải thích từng dòng
+### 4.2 Giải thích chi tiết từng dòng code
 
-**Phần include**:
+#### a) Phần `#include` — khai báo thư viện
+
 ```c
-#include <sys/mman.h>    // mmap, munmap
-#include <fcntl.h>       // open()
-#include <unistd.h>      // close(), sleep()
+#include <stdio.h>       // printf(), perror()
+#include <stdlib.h>      // exit(), macros
+#include <stdint.h>      // uint32_t — kiểu số nguyên 32-bit chính xác
+#include <fcntl.h>       // open(), O_RDWR — mở file với quyền đọc+ghi
+#include <unistd.h>      // close(), sleep() — đóng file, chờ N giây
+#include <sys/mman.h>    // mmap(), munmap(), MAP_SHARED, PROT_READ...
+#include <string.h>      // memset() (dự phòng, không bắt buộc ở đây)
 ```
 
-**Con trỏ volatile**:
-```c
-volatile uint32_t *gpio_base;
-```
-- `volatile`: bảo cho compiler ko optimize away việc đọc/ghi repo phần cứng
-- `uint32_t`: 32-bit (kích thước một thanh ghi)
-- `*`: con trỏ - sủ dụng để lưu virtual address trả về từ mmap()
+#### b) Phần `#define` — hằng số địa chỉ và offset
 
-**Tính toán offset**:
+```c
+#define GPIO1_BASE      0x4804C000      // Địa chỉ vật lý bắt đầu của module GPIO1
+                                        // (tra từ TRM Chapter 2 - Memory Map)
+#define GPIO1_SIZE      0x1000          // 0x1000 = 4096 byte = 4KB
+                                        // Đây là kích thước vùng thanh ghi của GPIO1
+                                        // mmap() yêu cầu size là bội số của page (4KB)
+```
+
+```c
+#define GPIO_OE         0x134           // Offset của thanh ghi Output Enable
+                                        // Bit = 0 → chân đó là output
+                                        // Bit = 1 → chân đó là input (mặc định)
+#define GPIO_DATAOUT    0x13C           // Offset của thanh ghi Data Output
+                                        // Đọc thanh ghi này để biết trạng thái output hiện tại
+#define GPIO_SETDATAOUT 0x194           // Ghi bit = 1 → set chân tương ứng lên HIGH
+                                        // Ghi bit = 0 → không ảnh hưởng (không clear)
+#define GPIO_CLEARDATAOUT 0x190         // Ghi bit = 1 → clear chân tương ứng xuống LOW
+                                        // Ghi bit = 0 → không ảnh hưởng (không set)
+```
+
+> **Lưu ý**: `SETDATAOUT` và `CLEARDATAOUT` là hai thanh ghi riêng biệt. Chỉ cần ghi 1 vào bit muốn thay đổi, các bit khác giữ nguyên (không cần đọc-sửa-ghi). Đây là thiết kế set/clear phổ biến trên ARM SoC.
+
+```c
+#define GPIO_BIT        21              // LED usr0 trên BBB nối tới GPIO1, bit 21
+#define GPIO_MASK       (1 << GPIO_BIT) // = (1 << 21) = 0x00200000
+                                        // Đây là mặt nạ bit: chỉ bit 21 = 1, còn lại = 0
+```
+
+**Phép toán `1 << 21`**:
+```
+  Số 1 dạng nhị phân 32-bit:
+  0000 0000 0000 0000 0000 0000 0000 0001
+
+  Dịch trái 21 vị trí (1 << 21):
+  0000 0000 0010 0000 0000 0000 0000 0000
+  = 0x00200000
+```
+
+#### c) Khai báo biến
+
+```c
+int fd;                         // File descriptor — số nguyên đại diện cho file đã mở
+                                // Sẽ nhận giá trị từ open("/dev/mem", ...)
+volatile uint32_t *gpio_base;   // Con trỏ tới vùng nhớ GPIO1 sau khi mmap()
+```
+
+- **`volatile`**: Từ khóa bắt buộc khi truy cập thanh ghi phần cứng. Nó nói với compiler: "Giá trị tại địa chỉ này có thể thay đổi bất cứ lúc nào (do phần cứng), **đừng tối ưu hóa** bằng cách cache giá trị trong register CPU". Nếu thiếu `volatile`, compiler có thể bỏ qua lệnh đọc/ghi thanh ghi → chương trình chạy sai.
+- **`uint32_t *`**: Con trỏ tới giá trị 32-bit. Mỗi thanh ghi GPIO là 32-bit (4 byte), nên kiểu `uint32_t*` là phù hợp.
+
+#### d) Bước 1 — Mở `/dev/mem`
+
+```c
+fd = open("/dev/mem", O_RDWR);
+```
+
+- `open()`: syscall mở file, trả về file descriptor (số nguyên ≥ 0 nếu thành công, -1 nếu lỗi)
+- `"/dev/mem"`: file đặc biệt đại diện cho toàn bộ bộ nhớ vật lý
+- `O_RDWR`: mở với quyền đọc **và** ghi (cần cả hai vì ta sẽ đọc thanh ghi OE và ghi thanh ghi SET/CLEAR)
+
+```c
+if (fd < 0) {           // fd < 0 nghĩa là open() thất bại
+    perror("open /dev/mem");  // In lỗi kèm mô tả (ví dụ: "Permission denied")
+    return 1;            // Thoát chương trình với mã lỗi
+}
+```
+
+#### e) Bước 2 — Gọi `mmap()` ánh xạ vùng GPIO1
+
+```c
+gpio_base = (volatile uint32_t *)mmap(
+    NULL,                           // addr: NULL = để kernel tự chọn virtual address
+    GPIO1_SIZE,                     // length: 0x1000 = 4096 byte cần ánh xạ
+    PROT_READ | PROT_WRITE,        // prot: quyền đọc + ghi trên vùng nhớ này
+    MAP_SHARED,                     // flags: ghi vào vùng này sẽ ảnh hưởng tới
+                                    //        phần cứng thật (không phải bản sao riêng)
+    fd,                             // fd: file descriptor của /dev/mem
+    GPIO1_BASE                      // offset: 0x4804C000 = physical address GPIO1
+);
+```
+
+**Kết quả**: Kernel tạo ánh xạ trong page table:
+```
+gpio_base (virtual, ví dụ 0x76fb4000) → 0x4804C000 (physical, GPIO1 trên chip)
+```
+
+Sau lệnh này, ghi vào `*gpio_base` tương đương ghi vào thanh ghi phần cứng GPIO1 tại địa chỉ `0x4804C000`.
+
+```c
+if (gpio_base == MAP_FAILED) {   // MAP_FAILED = (void *)-1, nghĩa là mmap() thất bại
+    perror("mmap");               // In lỗi (thường là "Permission denied" nếu ko root)
+    close(fd);                    // Đóng file descriptor trước khi thoát
+    return 1;
+}
+```
+
+#### f) Bước 3 — Cấu hình GPIO1_21 là output
+
 ```c
 volatile uint32_t *gpio_oe = gpio_base + (GPIO_OE / 4);
 ```
-- `gpio_base` là con trỏ `uint32_t*`, nên `gpio_base + N` tương đương `gpio_base + 4*N` (byte)
-- `GPIO_OE = 0x134` byte, nên cần chia cho 4 để chuyển byte → uint32_t offset
 
-**Ghi/đọc thanh ghi**:
-```c
-uint32_t oe_value = *gpio_oe;           // Đọc
-*gpio_oe = oe_value & ~GPIO_MASK;       // Ghi
+**Phép toán con trỏ — tại sao chia cho 4?**
+
+- `gpio_base` có kiểu `uint32_t*` → mỗi đơn vị `+1` tương đương **+4 byte** (vì `sizeof(uint32_t) = 4`)
+- `GPIO_OE = 0x134` là offset tính bằng **byte**
+- Để chuyển byte offset → phần tử `uint32_t`: `0x134 / 4 = 0x4D = 77`
+- Vậy `gpio_base + 77` = virtual address của thanh ghi `GPIO_OE`
+
+```
+gpio_base          → virtual addr + 0x000  (thanh ghi đầu tiên)
+gpio_base + 1      → virtual addr + 0x004  (thanh ghi thứ 2)
+...
+gpio_base + 77     → virtual addr + 0x134  (thanh ghi GPIO_OE)
 ```
 
-**Giải phóng**:
 ```c
-munmap((void *)gpio_base, GPIO1_SIZE);  // Giải phóng mapping
-close(fd);                               // Đóng /dev/mem
+uint32_t oe_value = *gpio_oe;    // Đọc giá trị hiện tại của thanh ghi GPIO_OE
+                                 // Ví dụ: 0xFFFFFFFF (tất cả 32 chân đều là input)
 ```
+
+```c
+oe_value &= ~GPIO_MASK;          // Clear bit 21 → set chân đó thành output
+```
+
+**Phép toán bit chi tiết**:
+```
+GPIO_MASK  = 0x00200000 = 0000 0000 0010 0000 0000 0000 0000 0000
+~GPIO_MASK = 0xFFDFFFFF = 1111 1111 1101 1111 1111 1111 1111 1111
+
+oe_value (trước) = 0xFFFFFFFF = 1111 1111 1111 1111 1111 1111 1111 1111
+oe_value & ~MASK = 0xFFDFFFFF = 1111 1111 1101 1111 1111 1111 1111 1111
+                                              ↑ bit 21 = 0 → output
+```
+
+- `~` (NOT): đảo tất cả bit → tạo mặt nạ "tất cả 1 trừ bit 21"
+- `&=` (AND-assign): giữ nguyên tất cả bit khác, chỉ xóa bit 21 về 0
+- Trong thanh ghi `GPIO_OE`: bit = 0 → output, bit = 1 → input
+
+```c
+*gpio_oe = oe_value;              // Ghi giá trị mới vào thanh ghi GPIO_OE
+                                  // Từ lúc này, GPIO1_21 được cấu hình là output
+```
+
+#### g) Bước 4 — Bật LED (set chân HIGH)
+
+```c
+volatile uint32_t *gpio_setdataout = gpio_base + (GPIO_SETDATAOUT / 4);
+// gpio_base + (0x194 / 4) = gpio_base + 0x65 = virtual addr của thanh ghi SETDATAOUT
+
+*gpio_setdataout = GPIO_MASK;     // Ghi 0x00200000 vào thanh ghi SETDATAOUT
+                                  // → bit 21 = 1 → chân GPIO1_21 lên mức HIGH → LED sáng
+                                  // Các bit khác = 0 → không ảnh hưởng các chân còn lại
+```
+
+#### h) Bước 5 — Tắt LED (clear chân LOW)
+
+```c
+volatile uint32_t *gpio_cleardataout = gpio_base + (GPIO_CLEARDATAOUT / 4);
+// gpio_base + (0x190 / 4) = gpio_base + 0x64 = virtual addr của thanh ghi CLEARDATAOUT
+
+*gpio_cleardataout = GPIO_MASK;   // Ghi 0x00200000 vào thanh ghi CLEARDATAOUT
+                                  // → bit 21 = 1 → clear chân GPIO1_21 xuống LOW → LED tắt
+```
+
+#### i) Bước 6 — Giải phóng tài nguyên
+
+```c
+munmap((void *)gpio_base, GPIO1_SIZE);
+// Xóa ánh xạ virtual → physical ra khỏi page table
+// Sau lệnh này, truy cập gpio_base sẽ gây segfault
+// (void *): ép kiểu vì munmap() nhận void*, không phải volatile uint32_t*
+
+close(fd);
+// Đóng file descriptor /dev/mem
+// Giải phóng tài nguyên kernel đã cấp cho file này
+```
+
+> **Quy tắc**: Luôn gọi `munmap()` trước `close()`. Nếu chương trình chạy trong vòng lặp vô hạn, cần bắt tín hiệu `SIGINT` (Ctrl+C) bằng `signal()` để cleanup trước khi thoát.
 
 ### 4.3 Biên dịch và chạy
 
@@ -295,6 +486,28 @@ sudo ./led_mmap
 - Dùng số GPIO sai
 
 **Cách khắc phục**: Dùng sysfs để kiểm tra GPIO hoạt động trước.
+
+### Lỗi 4: `sleep(0.5)` — vòng lặp chạy liên tục, terminal bị spam
+
+```c
+sleep(0.5);   // ⚠️ BUG: sleep() nhận unsigned int, 0.5 bị truncate thành 0!
+```
+
+**Nguyên nhân**: Hàm `sleep()` có prototype `unsigned int sleep(unsigned int seconds)`. Khi truyền `0.5` (double), trình tạo bytecode phát sinh **implicit conversion** `double → unsigned int`, kết quả = **0**. Vòng lặp chạy không chờ → in liên tục.
+
+**Cách khắc phục**: Dùng `usleep()` (microseconds) hoặc `nanosleep()`:
+
+```c
+// Cách 1: usleep() — đơn vị microsecond (µs)
+usleep(500000);       // 500000 µs = 0.5 giây
+
+// Cách 2: nanosleep() — POSIX, chính xác hơn
+#include <time.h>
+struct timespec ts = { .tv_sec = 0, .tv_nsec = 500000000L };
+nanosleep(&ts, NULL); // 500ms
+```
+
+> **Bài học**: Trong C, luôn kiểm tra kiểu tham số của hàm. `sleep()` = giây (unsigned int), `usleep()` = µs, `nanosleep()` = ns.
 
 ---
 

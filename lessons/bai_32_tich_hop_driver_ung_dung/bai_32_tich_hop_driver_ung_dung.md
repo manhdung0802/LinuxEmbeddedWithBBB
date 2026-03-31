@@ -207,6 +207,35 @@ MODULE_DESCRIPTION("GPIO character device driver for BeagleBone Black");
 MODULE_VERSION("1.0");
 ```
 
+### Giải thích chi tiết từng dòng code (my_gpio_drv.c)
+
+a) **`#include <linux/gpio.h>`**:
+- Legacy GPIO API: `gpio_request()`, `gpio_direction_output()`, `gpio_get_value()`, `gpio_set_value()`.
+- **Lưu ý**: API này đã deprecated, kernel mới dùng `gpiod_*` (GPIO descriptor API). Tuy nhiên, `gpio_*` vẫn hoạt động và dễ học hơn.
+
+b) **`#define GPIO_PIN 60`**:
+- GPIO60 = GPIO1_28 (bank 1 × 32 + 28 = 60) = pin P9.12 trên BBB.
+- Dùng số **Linux GPIO** (không phải số pin vật lý). Tính: `bank * 32 + pin_within_bank`.
+
+c) **`gpio_request(GPIO_PIN, "my_gpio_drv")`**:
+- Đăng ký quyền sử dụng GPIO pin với kernel. Nếu pin đang bị driver khác dùng → trả về lỗi.
+- Tham số 2 là label (hiện trong `/sys/kernel/debug/gpio`).
+
+d) **Trình tự init: GPIO → chrdev → class → device → cdev**:
+- Tương tự bài 18 (mychar_driver.c), nhưng thêm bước `gpio_request` ở đầu.
+- Error handling dùng `goto` với **reverse cleanup** (giống bài 18).
+
+e) **`gpio_drv_read()` và `gpio_drv_write()`**:
+- `gpio_get_value(GPIO_PIN)` — đọc trạng thái pin (0 hoặc 1). Trả về character `'0'` hoặc `'1'` cho userspace.
+- `gpio_set_value(GPIO_PIN, 1)` — set pin HIGH. Chỉ chấp nhận `'0'` hoặc `'1'`, giá trị khác trả `-EINVAL`.
+- Vẫn dùng `copy_to_user()` / `copy_from_user()` như bài 18.
+
+f) **`gpio_free(GPIO_PIN)` trong exit**:
+- **Bắt buộc** giải phóng GPIO khi module unload. Nếu không, pin bị "khóa" — không driver nào khác dùng được cho đến khi reboot.
+- Cleanup ngược thứ tự: `cdev_del → device_destroy → class_destroy → unregister_chrdev → gpio_free`.
+
+> **Bài học**: Driver này kết hợp kiến thức từ nhiều bài: char device (bài 18), GPIO registers (bài 5/17), error handling với goto (bài 18), và kernel module API (bài 17). Khi tích hợp vào Yocto, chỉ cần `inherit module` và `KERNEL_MODULE_AUTOLOAD` để kernel tự load.
+
 ### 3.2 Makefile cho module
 
 ```makefile
@@ -291,6 +320,27 @@ int main(int argc, char *argv[])
     return 0;
 }
 ```
+
+### Giải thích chi tiết từng dòng code (gpio_control.c)
+
+a) **`open(DEV_PATH, O_RDWR)`**:
+- Mở `/dev/my_gpio0` — device node do driver tạo (qua `device_create` trong `my_gpio_drv.c`).
+- Nếu driver chưa load, `open()` trả `-1` với `errno = ENOENT` (No such file or directory).
+- khi `open()` thành công, kernel gọi `gpio_drv_open()` trong driver.
+
+b) **`write(fd, "1", 1)` và `read(fd, buf, ...)`**:
+- `write` → kernel gọi `gpio_drv_write()` → `gpio_set_value()`.
+- `read` → kernel gọi `gpio_drv_read()` → `gpio_get_value()`.
+- Đây là **luồng hoàn chỉnh**: userspace `write()` → VFS → `file_operations.write` → driver code → GPIO hardware.
+
+c) **Error message hướng dẫn**:
+```c
+fprintf(stderr, "Lỗi: Driver my_gpio_drv chưa được load?\n");
+fprintf(stderr, "Thử: modprobe my_gpio_drv\n");
+```
+- User-friendly error khi driver chưa load — quan trọng trong embedded vì debug khó hơn.
+
+> **Bài học**: Đây là **full-stack embedded**: DTS (bài 16/25) → kernel driver (bài 17/18) → userspace app (bài 23) → Yocto recipe (bài 29) → production image (bài 30). Tất cả kết nối lại thành workflow hoàn chỉnh.
 
 ---
 

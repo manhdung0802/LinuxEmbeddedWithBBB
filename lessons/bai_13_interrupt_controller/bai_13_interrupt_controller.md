@@ -238,6 +238,77 @@ clean:
 	make -C $(KERNEL_DIR) M=$(PWD) clean
 ```
 
+### Giải thích chi tiết từng dòng code `gpio_irq_module.c`
+
+#### a) Header và API kernel
+
+```c
+#include <linux/module.h>     // module_init(), module_exit(), MODULE_LICENSE
+#include <linux/kernel.h>     // printk(), KERN_INFO, KERN_ERR
+#include <linux/init.h>       // __init, __exit — đánh dấu hàm chỉ dùng khi load/unload
+#include <linux/gpio.h>       // gpio_request(), gpio_direction_input(), gpio_to_irq()
+#include <linux/interrupt.h>   // request_irq(), free_irq(), IRQF_TRIGGER_FALLING
+```
+
+> Khác với userspace: kernel module KHÔNG dùng `stdio.h`, `stdlib.h`... mà dùng API kernel riêng.
+
+#### b) `gpio_irq_init()` — trình tự đăng ký interrupt
+
+```c
+ret = gpio_request(GPIO_NUM, GPIO_DESC);
+// Yêu cầu kernel dành riêng GPIO 49 cho module này
+// Nếu GPIO đã bị module/driver khác chiếm → trả lỗi
+```
+
+```c
+ret = gpio_direction_input(GPIO_NUM);
+// Cấu hình GPIO là input (vì ta muốn nhận sự kiện nút nhấn)
+// Kernel tự ghi thanh ghi GPIO_OE tương ứng
+```
+
+```c
+irq_number = gpio_to_irq(GPIO_NUM);
+// Chuyển GPIO number (49) → Linux virtual IRQ number
+// Ví dụ: GPIO 49 → virq 200 (số cụ thể khác nhau tùy kernel)
+// Linux KHÔNG dùng hardware IRQ trực tiếp — dùng virtual IRQ để
+// trừ tượng hóa và hỗ trợ nhiều interrupt controller khác nhau
+```
+
+```c
+ret = request_irq(irq_number, gpio_irq_handler,
+                  IRQF_TRIGGER_FALLING,
+                  GPIO_DESC, NULL);
+// irq_number: virtual IRQ từ gpio_to_irq()
+// gpio_irq_handler: con trỏ hàm ISR (top half)
+// IRQF_TRIGGER_FALLING: trigger khi tín hiệu HIGH→LOW (nhấn nút)
+//   Các flag khác: IRQF_TRIGGER_RISING, IRQF_TRIGGER_BOTH
+// GPIO_DESC: tên (hiển thị trong /proc/interrupts)
+// NULL: dev_id — dùng khi share interrupt, ở đây không cần
+```
+
+#### c) ISR (Top Half)
+
+```c
+static irqreturn_t gpio_irq_handler(int irq, void *dev_id)
+{
+    press_count++;      // Đếm số lần nhấn (lưu ý: không atomic, OK cho demo)
+    printk(KERN_INFO ...);
+    return IRQ_HANDLED;  // Báo kernel: interrupt đã được xử lý
+                         // Nếu trả IRQ_NONE: kernel biết ISR này không phải chủ interrupt
+}
+```
+
+> **Quy tắc ISR**: KHÔNG được sleep, KHÔNG malloc, KHÔNG mutex_lock. Chỉ làm việc tối thiểu rồi thoát nhanh. Nếu cần xử lý nặng → `schedule_work()` (bottom half).
+
+#### d) Cleanup khi unload module
+
+```c
+free_irq(irq_number, NULL);  // Hủy đăng ký interrupt handler
+gpio_free(GPIO_NUM);          // Trả GPIO về cho hệ thống
+// Thứ tự quan trọng: free_irq TRƯỚC rồi mới gpio_free
+// Nếu ngược lại, interrupt có thể fire khi GPIO đã bị giải phóng
+```
+
 ---
 
 ## 6. Dùng Workqueue cho Bottom Half

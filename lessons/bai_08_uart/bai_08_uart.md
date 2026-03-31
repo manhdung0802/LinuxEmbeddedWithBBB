@@ -276,6 +276,102 @@ int main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code
+
+#### a) Các thanh ghi UART — tại sao cùng offset?
+
+```c
+#define UART_RHR  0x00   // Receive Holding Register — đọc byte nhận được
+#define UART_THR  0x00   // Transmit Holding Register — ghi byte cần gửi
+// Cùng offset 0x00 nhưng: đọc → lấy RHR, ghi → ghi THR
+// Đây là thiết kế phổ biến trên UART 16550-compatible
+
+#define UART_DLL  0x00   // Divisor Latch Low — 8 bit thấp của baud rate divisor
+#define UART_DLH  0x04   // Divisor Latch High — 8 bit cao
+// Cũng dùng offset 0x00 và 0x04, nhưng chỉ truy cập được khi LCR[7]=1 (DLAB mode)
+```
+
+#### b) Cấu hình baud rate — công thức
+
+$$\text{Divisor} = \frac{\text{UART\_CLK}}{16 \times \text{BaudRate}} = \frac{48{,}000{,}000}{16 \times 115200} = 26$$
+
+```c
+#define BAUD_DLL  26    // = 0x1A — byte thấp của divisor
+#define BAUD_DLH  0     // = 0x00 — byte cao (divisor < 256 nên DLH = 0)
+```
+
+#### c) Hàm `uart_init()` — trình tự khởi tạo
+
+```c
+cm_per[CM_PER_UART1_CLKCTRL / 4] = 0x2;  // MODULEMODE = ENABLE → bật clock UART1
+```
+
+```c
+ctrl[CONF_UART1_TXD / 4] = 0x00;  // Mode 0 = chức năng UART TX
+                                   // Bit [2:0]=0 → Mode 0, Bit 5=0 → output
+ctrl[CONF_UART1_RXD / 4] = 0x20;  // Mode 0 + RXACTIVE=1 (bit 5)
+                                   // RXACTIVE bật receiver — bắt buộc cho chân RX
+```
+
+```c
+uart1[UART_MDR1 / 4] = MDR1_DISABLE;  // = 0x07 → disable UART trước khi cấu hình
+// BẮT BUỘC: nếu thay đổi baud rate khi UART đang chạy → dữ liệu bị hỏng
+```
+
+```c
+uart1[UART_LCR / 4] = LCR_DLAB;       // = 0x80 → set bit 7 = 1 (DLAB mode)
+// Khi DLAB=1: offset 0x00 trở thành DLL, offset 0x04 trở thành DLH
+// Khi DLAB=0: offset 0x00 trở lại là RHR/THR bình thường
+
+uart1[UART_DLL / 4] = BAUD_DLL;        // = 26 → ghi divisor byte thấp
+uart1[UART_DLH / 4] = BAUD_DLH;        // = 0  → ghi divisor byte cao
+```
+
+```c
+uart1[UART_LCR / 4] = LCR_8BIT | LCR_1STOP | LCR_NOPARITY;
+// = 0x03 | 0x00 | 0x00 = 0x03
+// Bit [1:0] = 0b11 → 8 data bits
+// Bit 2 = 0 → 1 stop bit
+// Bit 3 = 0 → parity disabled
+// Bit 7 = 0 → clear DLAB, quay về chế độ RHR/THR bình thường
+```
+
+```c
+uart1[UART_FCR / 4] = 0x07;
+// Bit 0 = 1 → FIFO enable
+// Bit 1 = 1 → Reset RX FIFO (tự clear sau khi reset)
+// Bit 2 = 1 → Reset TX FIFO (tự clear sau khi reset)
+```
+
+```c
+uart1[UART_MDR1 / 4] = MDR1_16X_MODE;  // = 0x00 → bật UART ở chế độ 16x oversampling
+// 16x oversampling: mỗi bit được sample 16 lần → chính xác hơn
+```
+
+#### d) Hàm `uart_putc()` — gửi 1 byte
+
+```c
+while (!(uart1[UART_LSR / 4] & LSR_TX_EMPTY))
+    ;  // Busy-wait: đọc LSR liên tục cho đến khi bit TX_EMPTY = 1
+       // LSR_TX_EMPTY = (1 << 5) = 0x20
+       // Khi bit 5 = 1: TX FIFO rỗng → an toàn để ghi byte mới
+
+uart1[UART_THR / 4] = c;  // Ghi byte vào THR → UART hardware tự gửi ra chân TX
+```
+
+#### e) Hàm `uart_getc()` — nhận 1 byte
+
+```c
+while (!(uart1[UART_LSR / 4] & LSR_RX_READY))
+    ;  // Busy-wait: chờ đến khi RX FIFO có dữ liệu
+       // LSR_RX_READY = (1 << 0) = 0x01
+
+return (char)(uart1[UART_RHR / 4] & 0xFF);  // Đọc byte từ RHR
+// & 0xFF: chỉ lấy 8 bit thấp (thanh ghi 32-bit nhưng UART data chỉ 8 bit)
+```
+
+> **So sánh register-level vs termios**: Code mmap trên cho thấy chính xác từng bước phần cứng làm gì. Trong production, nên dùng `/dev/ttyO1` + `termios` vì kernel lo FIFO, interrupt, DMA, error handling — an toàn và portable hơn nhiều.
+
 ---
 
 ## 8. UART qua Linux devfile (`/dev/ttyO1`)

@@ -286,6 +286,70 @@ MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("EDMA3 DMA Memcpy Demo");
 ```
 
+### Giải thích chi tiết từng dòng code `edma_memcpy.c`
+
+#### a) Cấp phát buffer với GFP_DMA
+
+```c
+src_buf = kmalloc(BUF_SIZE, GFP_KERNEL | GFP_DMA);
+// GFP_KERNEL: cấp phát bộ nhớ kernel thông thường
+// GFP_DMA: đảm bảo vùng nhớ có thể truy cập bởi DMA controller
+// Trên AM335x: EDMA có thể truy cập DDR3 nên GFP_DMA không bắt buộc
+// nhưng là practice tốt để đảm bảo portable
+```
+
+#### b) DMA mapping
+
+```c
+src_dma = dma_map_single(chan->device->dev, src_buf, BUF_SIZE, DMA_TO_DEVICE);
+// Chuyển virtual address (src_buf) → DMA/bus address (src_dma)
+// DMA_TO_DEVICE: báo kernel đây là nguồn (CPU ghi, DMA đọc)
+//   → kernel flush CPU cache cho vùng này (DMA không thấy cache!)
+
+dst_dma = dma_map_single(chan->device->dev, dst_buf, BUF_SIZE, DMA_FROM_DEVICE);
+// DMA_FROM_DEVICE: đích (DMA ghi, CPU sẽ đọc sau)
+//   → kernel invalidate cache để CPU đọc dữ liệu mới từ RAM
+```
+
+> **Tại sao cần map?** DMA controller không đi qua CPU cache. Nếu không flush/invalidate cache, DMA có thể đọc dữ liệu cũ (đầu nguồn) hoặc CPU đọc dữ liệu cũ (đầu đích).
+
+#### c) Chuẩn bị và submit DMA transfer
+
+```c
+desc = dmaengine_prep_dma_memcpy(chan, dst_dma, src_dma, BUF_SIZE, DMA_PREP_INTERRUPT);
+// Tạo descriptor mô tả transfer: nguồn, đích, kích thước
+// DMA_PREP_INTERRUPT: yêu cầu phát interrupt khi xong để gọi callback
+// Chưa bắt đầu gì cả — chỉ là tạo mô tả
+```
+
+```c
+desc->callback = dma_callback;       // Hàm gọi khi DMA xong
+desc->callback_param = NULL;
+
+cookie = dmaengine_submit(desc);     // Đưa vào hàng đợi của DMA engine
+                                     // Vẫn CHƯA bắt đầu transfer!
+
+dma_async_issue_pending(chan);        // BÂY GIỞ mới thật sự bắt đầu!
+// DMA controller bắt đầu copy dữ liệu từ src → dst
+// CPU rảnh — có thể làm việc khác trong lúc DMA chạy
+```
+
+```c
+wait_for_completion(&dma_done);  // Block cho đến khi callback gọi complete()
+                                 // Trong callback: complete(&dma_done);
+```
+
+#### d) Verify kết quả
+
+```c
+dma_unmap_single(..., DMA_TO_DEVICE);     // Invalidate cache đầu nguồn
+dma_unmap_single(..., DMA_FROM_DEVICE);   // Invalidate cache đầu đích
+// PHẢI unmap TRƯỚC khi CPU đọc dữ liệu từ dst_buf
+
+if (memcmp(src_buf, dst_buf, BUF_SIZE) == 0)  // So sánh byte-by-byte
+    printk(KERN_INFO "DMA copy ĐÚNG");
+```
+
 ---
 
 ## 7. Câu hỏi kiểm tra

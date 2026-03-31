@@ -77,6 +77,36 @@ module_init(hello_init);
 module_exit(hello_exit);
 ```
 
+### Giải thích chi tiết từng dòng code
+
+a) **Header includes**:
+- `#include <linux/module.h>` — cung cấp macro `module_init()`, `module_exit()`, `MODULE_LICENSE()`, `MODULE_AUTHOR()`... Đây là header **bắt buộc** cho mọi kernel module.
+- `#include <linux/kernel.h>` — cung cấp `printk()` và các macro log level (`KERN_INFO`, `KERN_ERR`...).
+- `#include <linux/init.h>` — cung cấp `__init` và `__exit` macro.
+
+b) **MODULE_LICENSE("GPL")**:
+- Khai báo module tuân thủ license GPL. **Bắt buộc** — nếu thiếu, kernel sẽ in warning "module license taints kernel" và **một số API sẽ bị khóa** (các hàm export chỉ dành cho GPL module).
+- Các giá trị hợp lệ: `"GPL"`, `"GPL v2"`, `"Dual BSD/GPL"`.
+
+c) **`static int __init hello_init(void)`**:
+- `static` — hàm chỉ visible trong file này (không export ra ngoài module).
+- `__init` — macro đánh dấu vùng nhớ của hàm này thuộc section `.init.text`. Sau khi init xong, kernel **giải phóng** vùng nhớ này để tiết kiệm RAM.
+- Trả về `int`: `0` = thành công, giá trị âm = error code (ví dụ `-ENOMEM`, `-EINVAL`). Nếu trả về lỗi, module **không được load**.
+
+d) **`printk(KERN_INFO "hello_module: ...\n")`**:
+- `printk` là `printf` của kernel — ghi vào **kernel ring buffer**, đọc bằng `dmesg`.
+- `KERN_INFO` = log level 6 (informational). Không phải tham số — nó là **string literal** nối trực tiếp: `KERN_INFO` = `"\0016"`, kết quả là `"\0016hello_module: ...\n"`.
+
+e) **`static void __exit hello_exit(void)`**:
+- `__exit` — hàm chỉ dùng khi unload module. Nếu module được **built-in** vào kernel (không phải `.ko`), compiler loại bỏ hàm này hoàn toàn.
+- Trả về `void` — hàm exit **không thể fail** (phải luôn cleanup thành công).
+
+f) **`module_init(hello_init)` / `module_exit(hello_exit)`**:
+- Macro đăng ký hàm nào sẽ chạy khi `insmod` (init) và `rmmod` (exit).
+- Bên trong, chúng tạo function pointer mà kernel dùng để gọi đúng hàm.
+
+> **Bài học**: Mọi kernel module **tối thiểu** cần: 1 hàm init, 1 hàm exit, `MODULE_LICENSE`, và 2 macro `module_init`/`module_exit`.
+
 ---
 
 ## 4. Makefile Build Out-of-Tree
@@ -299,6 +329,55 @@ module_exit(gpio_exit);
 ```
 
 > **Lưu ý**: Trong kernel module, dùng `ioremap`/`ioread32`/`iowrite32` thay vì `mmap(/dev/mem)`. Đây là cách "đúng" của kernel.
+
+### Giải thích chi tiết từng dòng code
+
+a) **`#include <linux/io.h>`**:
+- Cung cấp hàm `ioremap()`, `iounmap()`, `ioread32()`, `iowrite32()` — các hàm truy cập I/O register chuẩn của kernel.
+- Khác với userspace dùng `mmap(/dev/mem)`, kernel dùng `ioremap()` để map physical address vào **kernel virtual address space**.
+
+b) **`#define GPIO1_BASE 0x4804C000` và `#define GPIO1_SIZE 0x1000`**:
+- Địa chỉ vật lý GPIO1 từ TRM (spruh73q.pdf, Table 2-3). Size 4KB = 0x1000 là kích thước vùng register của một GPIO module.
+- `#define LED_PIN (1 << 21)` — tạo bitmask `0x00200000`, bit 21 = 1 (GPIO1_21 = LED USR0).
+
+c) **`static void __iomem *gpio1_base`**:
+- `void __iomem *` — kiểu con trỏ đặc biệt cho **I/O mapped memory**.
+- `__iomem` là annotation cho sparse checker (tool kiểm tra code kernel). Nếu bạn dùng `*(gpio1_base + offset)` trực tiếp, sparse sẽ warning — bắt buộc phải dùng `ioread32()`/`iowrite32()`.
+
+d) **`gpio1_base = ioremap(GPIO1_BASE, GPIO1_SIZE)`**:
+- `ioremap()` map vùng physical `0x4804C000..0x4804CFFF` vào virtual address mà kernel có thể truy cập.
+- Trả về `NULL` nếu thất bại → kiểm tra lỗi bắt buộc.
+- Khác `mmap()` userspace: `ioremap()` chạy trong kernel context, không cần `open(/dev/mem)`.
+
+e) **`ioread32()` / `iowrite32()`**:
+- `u32 oe = ioread32(gpio1_base + GPIO_OE)` — đọc 32-bit register tại offset `0x134`.
+- `iowrite32(oe, gpio1_base + GPIO_OE)` — ghi giá trị 32-bit vào register.
+- Các hàm này đảm bảo **memory barrier** và **byte ordering** đúng trên mọi kiến trúc ARM.
+- Pointer arithmetic: `gpio1_base + GPIO_OE` = `gpio1_base + 0x134`. Vì `void __iomem *`, phép cộng tính theo **byte** (khác `volatile uint32_t *` tính theo 4-byte).
+
+f) **Bit manipulation cho OE register**:
+```c
+oe &= ~LED_PIN;   /* Clear bit 21 → output mode */
+```
+- `~LED_PIN` = `~0x00200000` = `0xFFDFFFFF` — tất cả bit 1 trừ bit 21.
+- `oe &= ~LED_PIN` — giữ nguyên các bit khác, chỉ clear bit 21.
+
+g) **`iowrite32(LED_PIN, gpio1_base + GPIO_SETDATAOUT)`**:
+- Ghi `0x00200000` vào register SETDATAOUT (offset `0x194`).
+- Register SETDATAOUT chỉ **set** các bit có giá trị 1, **không ảnh hưởng** bit 0 → an toàn cho multi-pin.
+
+h) **Cleanup trong `gpio_exit()`**:
+- `iowrite32(LED_PIN, gpio1_base + GPIO_CLEARDATAOUT)` — tắt LED trước.
+- `iounmap(gpio1_base)` — **bắt buộc** giải phóng mapping. Quên `iounmap()` = **memory leak** trong kernel (khác userspace, kernel không tự cleanup khi module unload).
+
+> **Bài học**: So sánh userspace vs kernel GPIO access:
+> | | Userspace (bài 4) | Kernel module (bài 17) |
+> |---|---|---|
+> | Map | `mmap(/dev/mem)` | `ioremap()` |
+> | Read | `*(volatile uint32_t*)` | `ioread32()` |
+> | Write | gán trực tiếp | `iowrite32()` |
+> | Unmap | `munmap()` | `iounmap()` |
+> | Quyền | Cần root + `/dev/mem` | Tự động (kernel space) |
 
 ---
 

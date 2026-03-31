@@ -88,6 +88,29 @@ int main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code
+
+a) **`#include <sys/wait.h>`**:
+- Cung cấp `wait()`, `waitpid()` và các macro `WIFEXITED()`, `WEXITSTATUS()` để phân tích exit status của child.
+
+b) **`pid_t pid = fork()`**:
+- `fork()` tạo bản sao của process hiện tại. Sau lệnh này, **có 2 process** chạy song song.
+- Giá trị trả về: `< 0` = lỗi, `== 0` = đang ở **child**, `> 0` = đang ở **parent** (giá trị là PID của child).
+- Mọi biến trước `fork()` được **sao chép** sang child (copy-on-write).
+
+c) **`shared_var = 200` trong child**:
+- Chỉ thay đổi bản sao của child. Parent vẫn giữ `shared_var = 100`.
+- Đây là minh họa **process isolation**: mỗi process có address space riêng.
+
+d) **`exit(0)` vs `_exit(1)`**:
+- `exit(0)` trong child — cleanup stdio buffers rồi thoát.
+- `_exit(1)` — thoát **ngay lập tức** không flush buffer. Dùng trong child **sau exec failure** để tránh ghi trùng stdout của parent.
+
+e) **`wait(&status)`**:
+- Parent block cho đến khi child kết thúc. Không gọi `wait()` = child thành **zombie**.
+- `WIFEXITED(status)` = 1 nếu child exit bình thường (gọi `exit()`).
+- `WEXITSTATUS(status)` = giá trị truyền cho `exit()` (0 trong trường hợp này).
+
 ### Copy-on-Write (COW)
 
 Sau `fork()`, child **không** nhận bản sao ngay lập tức — chúng dùng **chung** trang nhớ vật lý. Chỉ khi một bên ghi (write), kernel mới tạo bản sao riêng. → Fork rất nhanh dù process lớn.
@@ -350,6 +373,34 @@ int main(void)
     return 0;
 }
 ```
+
+### Giải thích chi tiết từng dòng code (watchdog_process.c)
+
+a) **`static volatile int running = 1`**:
+- `volatile` đảm bảo compiler không optimize biến này vào register — cần thiết vì `sigterm_handler` sẽ thay đổi giá trị từ signal context.
+- Pattern **“global flag + signal handler”** giống bài 4 (SIGINT handler cho LED cleanup).
+
+b) **Watchdog loop pattern**:
+```c
+while (running && restarts < MAX_RESTARTS) {
+    pid_t pid = fork(); // tạo worker
+    waitpid(pid, &status, 0); // chờ worker xong
+    // phân tích status → restart nếu crash
+}
+```
+- Mỗi vòng lặp: fork worker → chờ → kiểm tra exit status → restart nếu cần.
+- `MAX_RESTARTS = 5` — giới hạn số lần restart để tránh infinite restart loop.
+
+c) **`WIFSIGNALED(status)` và `WTERMSIG(status)`**:
+- `WIFSIGNALED` = 1 nếu child bị kill bởi signal (ví dụ: `abort()` gửi SIGABRT, segfault gửi SIGSEGV).
+- `WTERMSIG` = số hiệu signal đã kill child.
+- Nếu child exit bình thường (`WIFEXITED`), không restart.
+
+d) **`sleep(1)` backoff**:
+- Chờ 1 giây trước khi restart → tránh fork bomb nếu worker crash ngay lập tức.
+- Trong production, dùng **exponential backoff**: 1s, 2s, 4s, 8s...
+
+> **Bài học**: Pattern watchdog process rất phổ biến trong embedded Linux: systemd, supervisord, và các daemon manager đều dùng cơ chế tương tự. Kết hợp với hardware watchdog timer (bài 26) để đảm bảo hệ thống tự khôi phục.
 
 ---
 

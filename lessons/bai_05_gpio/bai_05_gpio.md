@@ -255,6 +255,136 @@ int main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code
+
+#### a) Phần `#include` và `#define`
+
+```c
+#include <stdio.h>       // printf(), perror()
+#include <stdlib.h>      // exit()
+#include <fcntl.h>       // open(), O_RDWR, O_SYNC
+#include <sys/mman.h>    // mmap(), munmap(), MAP_SHARED, PROT_READ|PROT_WRITE
+#include <unistd.h>      // close(), usleep()
+#include <stdint.h>      // uint32_t — kiểu số nguyên 32-bit chính xác
+```
+
+```c
+#define GPIO1_BASE       0x4804C000UL  // Địa chỉ vật lý bắt đầu vùng thanh ghi GPIO1
+                                       // (TRM Table 2-4, L4_PER Peripheral Map)
+                                       // UL = unsigned long, tránh tràn khi tính toán 32-bit
+
+#define CTRL_MODULE_BASE 0x44E10000UL  // Control Module — quản lý pinmux cho mọi chân
+                                       // (TRM Section 9.3)
+
+#define CM_PER_BASE      0x44E00000UL  // Clock Module Peripheral — bật/tắt clock các module
+                                       // (TRM Table 8-29)
+```
+
+```c
+#define GPIO_OE            0x134  // Output Enable: bit=0 → output, bit=1 → input
+#define GPIO_SETDATAOUT    0x194  // Ghi 1 vào bit → set chân HIGH (không ảnh hưởng bit 0)
+#define GPIO_CLEARDATAOUT  0x190  // Ghi 1 vào bit → clear chân LOW (không ảnh hưởng bit 0)
+
+#define CM_PER_GPIO1_CLKCTRL 0xAC  // Offset thanh ghi bật clock cho GPIO1
+                                   // (TRM Section 8.1.12.1.28)
+
+#define CONF_GPMC_A5     0x854  // Offset pad config cho chân GPIO1_21 trong Control Module
+                                // (TRM Table 9-7: conf_gpmc_a5 → GPIO1[21])
+```
+
+```c
+#define PAGE_SIZE  4096               // Kích thước 1 page bộ nhớ = 4KB
+#define PAGE_MASK  (~(PAGE_SIZE - 1)) // = 0xFFFFF000 — dùng để căn chỉnh địa chỉ về đầu page
+                                      // mmap() yêu cầu offset phải là bội số PAGE_SIZE
+
+#define USR0_BIT   (1U << 21)  // = 0x00200000 — mặt nạ bit cho GPIO1_21
+```
+
+#### b) Mở `/dev/mem` và ánh xạ 3 vùng phần cứng
+
+```c
+fd = open("/dev/mem", O_RDWR | O_SYNC);
+// O_RDWR: đọc+ghi
+// O_SYNC: đảm bảo ghi thẳng vào phần cứng, không buffer (quan trọng cho MMIO)
+```
+
+Code ánh xạ **3 vùng register riêng biệt** — đây là điểm khác biệt với bài 4 (chỉ map 1 vùng GPIO):
+
+```c
+/* Ánh xạ GPIO1 — để đọc/ghi thanh ghi OE, SETDATAOUT, CLEARDATAOUT */
+gpio1 = mmap(NULL, PAGE_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED, fd,
+             GPIO1_BASE & PAGE_MASK);
+// GPIO1_BASE & PAGE_MASK = 0x4804C000 & 0xFFFFF000 = 0x4804C000
+// (đã căn chỉnh sẵn vì GPIO1_BASE là bội 4KB)
+
+/* Ánh xạ Control Module — để cấu hình pinmux */
+ctrl = mmap(NULL, PAGE_SIZE * 16, PROT_READ|PROT_WRITE, MAP_SHARED, fd,
+            CTRL_MODULE_BASE & PAGE_MASK);
+// Size = 16 page = 64KB vì Control Module rất lớn
+// CONF_GPMC_A5 = 0x854 > 4KB → cần map nhiều hơn 1 page
+
+/* Ánh xạ CM_PER — để bật clock */
+cm_per = mmap(NULL, PAGE_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED, fd,
+              CM_PER_BASE & PAGE_MASK);
+```
+
+> **Tại sao 3 vùng riêng?** Vì GPIO1, Control Module, CM_PER nằm ở 3 physical address khác nhau trên bus. Mỗi vùng cần `mmap()` riêng.
+
+#### c) Bước 1 — Bật clock GPIO1
+
+```c
+cm_per[CM_PER_GPIO1_CLKCTRL / 4] = 0x40002;
+```
+
+- `CM_PER_GPIO1_CLKCTRL / 4` = `0xAC / 4` = `0x2B` = phần tử thứ 43 (pointer arithmetic)
+- Giá trị `0x40002` phân tích theo bit:
+  - Bit [1:0] = `0b10` = `MODULEMODE = ENABLE` — bật module GPIO1
+  - Bit 18 = `1` = `OPTFCLKEN_GPIO_1_GDBCLK` — bật functional clock (debounce clock)
+- Nếu không bật clock, mọi thanh ghi GPIO1 sẽ **không phản hồi** khi đọc/ghi
+
+#### d) Bước 2 — Cấu hình pinmux
+
+```c
+ctrl[CONF_GPMC_A5 / 4] = 0x07;
+```
+
+- `CONF_GPMC_A5 / 4` = `0x854 / 4` = `0x215` = phần tử thứ 533
+- Giá trị `0x07` phân tích bit:
+  - Bit [2:0] = `0b111` = **Mode 7** = chế độ GPIO
+  - Bit 3 = `0` = **no pull-up/pull-down**
+  - Bit 4 = `0` = pull disabled
+  - Bit 5 = `0` = **output** (receiver disabled)
+  - Bit 6 = `0` = fast slew rate
+
+#### e) Bước 3 — Set GPIO1_21 là output
+
+```c
+gpio1[GPIO_OE / 4] &= ~USR0_BIT;
+```
+
+Phép toán bit:
+```
+USR0_BIT   = 0x00200000 = ...0010 0000 0000 0000 0000 0000
+~USR0_BIT  = 0xFFDFFFFF = ...1101 1111 1111 1111 1111 1111
+
+GPIO_OE cũ  = 0xFFFFFFFF  (tất cả input)
+&= ~USR0_BIT = 0xFFDFFFFF  (bit 21 = 0 → output, còn lại giữ nguyên)
+```
+
+> **Lưu ý**: Dùng `gpio1[offset/4]` thay vì `*(gpio1 + offset/4)` — cú pháp mảng dễ đọc hơn nhưng hoạt động giống hệt (pointer arithmetic).
+
+#### f) Bước 4 — Toggle LED trong vòng lặp
+
+```c
+gpio1[GPIO_SETDATAOUT / 4] = USR0_BIT;   // Bit 21 = 1 → GPIO1_21 HIGH → LED sáng
+usleep(500000);                            // Chờ 500000 µs = 500ms = 0.5 giây
+
+gpio1[GPIO_CLEARDATAOUT / 4] = USR0_BIT;  // Bit 21 = 1 → clear GPIO1_21 LOW → LED tắt
+usleep(500000);                            // Chờ 500ms
+```
+
+> **Tại sao dùng `usleep()` mà không dùng `sleep(0.5)`?** Vì `sleep()` nhận `unsigned int` (giây nguyên), truyền `0.5` sẽ bị truncate thành `0` → không chờ gì cả. `usleep()` nhận microsecond → cho phép delay dưới 1 giây.
+
 ### Cách biên dịch và chạy trên BBB:
 ```bash
 gcc -o blink blink_led_usr0.c

@@ -130,6 +130,49 @@ void main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code `pru_blink.c`
+
+#### a) Thanh ghi đặc biệt R30/R31
+
+```c
+volatile register uint32_t __R30;  // PRU output register
+volatile register uint32_t __R31;  // PRU input register
+// Đây KHÔNG phải biến bình thường — compiler ánh xạ trực tiếp vào CPU register
+// Ghi vào __R30 = thay đổi output GPIO của PRU ngay lập tức (1 cycle = 5ns)
+// Đọc __R31 = lấy trạng thái input GPIO của PRU
+```
+
+#### b) Khởi tạo PRU
+
+```c
+CT_CFG.SYSCFG_bit.STANDBY_INIT = 0;
+// CT_CFG = Constant Table entry cho CFG module (thanh ghi cấu hình PRU)
+// STANDBY_INIT = 0 → cho phép PRU truy cập OCP bus (L3/L4)
+// Nếu = 1: PRU bị cô lập, không truy cập được DDR hay peripheral
+```
+
+#### c) Toggle output
+
+```c
+__R30 |= (1U << PRU_OUTPUT_BIT);   // Set bit 0 của R30 → output HIGH
+                                    // Tương ứng chân pr1_pru0_pru_r30_0
+__R30 &= ~(1U << PRU_OUTPUT_BIT);  // Clear bit 0 của R30 → output LOW
+```
+
+#### d) Delay bằng vòng lặp
+
+```c
+static void delay_ms(uint32_t ms) {
+    volatile uint32_t i;
+    while (ms--) {
+        for (i = 0; i < 200000; i++)  // 200MHz → 1 cycle = 5ns
+            ;                          // 200,000 cycles ≈ 1ms
+    }                                  // volatile ngăn compiler optimize away
+}
+```
+
+> **Tại sao PRU không dùng `sleep()`?** PRU chạy bare-metal (không OS). Không có `sleep()`, `usleep()` hay bất kỳ syscall nào. Delay bằng vòng lặp hoặc `__delay_cycles()` (TI intrinsic).
+
 ---
 
 ## 6. RemoteProc và RPMsg: Giao Tiếp PRU ↔ Linux

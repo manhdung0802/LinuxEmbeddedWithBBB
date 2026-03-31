@@ -339,6 +339,99 @@ int main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code `dmtimer_delay.c`
+
+#### a) Tính LOAD value cho 1ms
+
+```c
+#define LOAD_1MS  (0xFFFFFFFFUL - (TIMER_HZ / 1000) + 1UL)
+// TIMER_HZ = 24,000,000
+// TIMER_HZ / 1000 = 24,000 tick cho 1ms
+// Counter đếm từ TLDR lên 0xFFFFFFFF rồi overflow
+// TLDR = 0xFFFFFFFF - 24000 + 1 = 0xFFFFA1C1
+// Nghĩa là: cần 24000 tick để đếm từ TLDR đến overflow
+```
+
+#### b) `timer_init()` — khởi tạo DMTIMER2
+
+```c
+timer2[TCLR / 4] = 0;        // Dừng timer (clear START bit)
+                              // PHẢI dừng trước khi thay đổi cấu hình
+
+timer2[TIOCP_CFG / 4] = 0x01; // Bit 0 = SOFTRESET → reset toàn bộ module
+while (timer2[TIOCP_CFG / 4] & 0x01)  // Chờ bit auto-clear về 0
+    ;                                  // = reset hoàn tất
+```
+
+#### c) `delay_ms()` — delay chính xác bằng polling
+
+```c
+timer2[TLDR / 4] = LOAD_1MS;  // Load Register = giá trị nạp lại khi overflow
+timer2[TCRR / 4] = LOAD_1MS;  // Counter Register = giá trị hiện tại (bắt đầu đếm)
+                               // TCRR sẽ đếm lên mỗi clock tick
+```
+
+```c
+timer2[IRQSTATUS / 4] = IRQ_OVF;  // Xóa flag overflow cũ (write-1-to-clear)
+                                   // Nếu không xóa, vòng while sẽ thoát ngay
+```
+
+```c
+timer2[TCLR / 4] = (1 << 1) | (1 << 0);
+// Bit 0 = ST = START → bắt đầu đếm
+// Bit 1 = AR = AUTO-RELOAD → khi overflow, tự nạp lại TLDR vào TCRR
+```
+
+```c
+while (!(timer2[IRQSTATUS / 4] & IRQ_OVF))  // Chờ overflow
+    ;  // IRQ_OVF = (1<<1) = bit 1 của IRQSTATUS
+       // Khi TCRR đếm qua 0xFFFFFFFF → bit này = 1
+
+timer2[TCLR / 4] = 0;  // Dừng timer sau mỗi lần đếm
+```
+
+---
+
+### Giải thích chi tiết từng dòng code `ehrpwm1_pwm.c`
+
+#### a) Khác biệt quan trọng: thanh ghi 16-bit
+
+```c
+volatile uint16_t *pwm = mmap(...);
+// eHRPWM dùng thanh ghi 16-bit (khác với GPIO/UART dùng 32-bit)
+// Nên con trỏ là uint16_t*, và chia offset cho 2 thay vì 4:
+pwm[TBCTL / 2]   // thay vì pwm[TBCTL / 4]
+```
+
+#### b) Cấu hình prescaler và period
+
+```c
+pwm[TBCTL / 2] = (6 << 10) | (5 << 7) | 0x0000;
+// Bit [14:10] = CLKDIV = 6 → ÷(1<<6) = ÷64
+// Bit [9:7] = HSPCLKDIV = 5 → ÷(5×2) = ÷14 (khi >0: ÷2×HSPCLKDIV)
+// TBCLK = 100MHz / 64 / 14 ≈ 111.6 kHz
+// Bit [1:0] = CTRMODE = 0 → up-count mode
+
+pwm[TBPRD / 2] = 2222;  // Period = 2222+1 = 2223 ticks
+// F_PWM = 111.6kHz / 2223 ≈ 50.2 Hz (≈ 50Hz cho servo)
+
+pwm[CMPA / 2] = 1111;   // Compare A = 1111
+// Duty = CMPA / TBPRD = 1111/2222 = 50%
+```
+
+#### c) Action Qualifier — quyết định dạng sóng PWM
+
+```c
+pwm[AQCTLA / 2] = 0x0042;
+// 0x0042 = 0b0000_0000_0100_0010
+// Bit [3:2] = 0b10 = "Set" khi counter = 0 (ZRO) → output HIGH
+// Bit [5:4] = 0b01 = "Clear" khi counter = CMPA (CAU) → output LOW
+//
+// Kết quả: sóng PWM active-HIGH:
+//   |<-- HIGH -->|<-- LOW -->|
+//   0          CMPA        TBPRD
+```
+
 ---
 
 ## 6. eCAP - Enhanced Capture

@@ -223,6 +223,42 @@ int main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code (poll_demo.c)
+
+a) **`system("echo 53 > /sys/class/gpio/export")`**:
+- Export GPIO53 (= GPIO1_21: bank 1 × 32 + 21 = 53) qua sysfs interface.
+- `echo both > .../edge` — bật edge detection cả rising và falling, cần thiết để `poll()` nhận event `POLLPRI`.
+
+b) **`open("/sys/.../value", O_RDONLY | O_NONBLOCK)`**:
+- `O_NONBLOCK` — `read()` sẽ trả về ngay với `-1` + `EAGAIN` nếu chưa có data, thay vì block.
+- GPIO sysfs value file chứa "0" hoặc "1".
+
+c) **Đọc lần đầu để clear initial state**:
+```c
+read(gpio_fd, dummy, sizeof(dummy));
+lseek(gpio_fd, 0, SEEK_SET);
+```
+- GPIO sysfs luôn có data sẵn (giá trị hiện tại). Phải đọc một lần để clear, nếu không `poll()` sẽ trả về ngay event giả.
+- `lseek(gpio_fd, 0, SEEK_SET)` — reset position về đầu file.
+
+d) **`fds[0].events = POLLPRI | POLLERR`**:
+- GPIO sysfs dùng `POLLPRI` (**không phải** `POLLIN`) cho edge interrupt. Đây là convention đặc biệt của kernel GPIO sysfs driver.
+- `POLLERR` — bắt error trên fd.
+
+e) **`poll(fds, 2, 5000)`**:
+- Tham số: mảng fd, số fd, timeout 5000ms.
+- Trả về: `> 0` = số fd có event, `0` = timeout, `< 0` = error.
+- Block cho đến khi có event hoặc hết timeout → **không tốn CPU** (khác với busy loop).
+
+f) **Xử lý GPIO event**:
+```c
+lseek(gpio_fd, 0, SEEK_SET);
+read(gpio_fd, val, sizeof(val)-1);
+```
+- **Phải `lseek` trước `read`** với GPIO sysfs — đây là quirk của kernel sysfs, không giống file thông thường.
+
+> **Bài học**: `poll()` và `select()` cho phép monitor nhiều fd **không cần multi-thread**. Đây là pattern event-driven I/O cơ bản, sẽ được nâng cấp thành `epoll` ở bài 24.
+
 ---
 
 ## 6. select() — Classic Multiplexing

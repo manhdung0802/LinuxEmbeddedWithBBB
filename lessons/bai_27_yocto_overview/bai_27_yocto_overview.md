@@ -108,6 +108,24 @@ do_install() {
 }
 ```
 
+### Giải thích chi tiết recipe
+
+a) **`SUMMARY`, `LICENSE`, `LIC_FILES_CHKSUM`**:
+- Metadata bắt buộc. `LIC_FILES_CHKSUM` là MD5 hash của file license — BitBake sẽ **fail** nếu hash không khớp (phát hiện license thay đổi).
+
+b) **`SRC_URI = "file://blink_led.c"`**:
+- Lấy source từ thư mục local `files/blink_led.c` trong recipe directory.
+- Các scheme khác: `git://`, `https://`, `ftp://`. Ví dụ: `SRC_URI = "git://github.com/..."`.
+
+c) **`${CC}`, `${CFLAGS}`, `${LDFLAGS}`**:
+- Biến do Yocto set tự động: `${CC}` = `arm-linux-gnueabihf-gcc` (cross-compiler).
+- **BắT BUỘC** dùng `${LDFLAGS}` để link đúng sysroot. Thiếu `${LDFLAGS}` = lỗi link hoặc binary không chạy.
+
+d) **`do_install()`**:
+- `install -d ${D}${bindir}` — tạo thư mục `${D}/usr/bin/` (`${D}` = destination root, `${bindir}` = `/usr/bin`).
+- `install -m 0755` — copy file với permission 755 (executable).
+- BitBake sau đó tự động đóng gói từ `${D}` thành package (ipk/rpm/deb).
+
 **Giải thích cột `S`:** `${WORKDIR}` là thư mục làm việc của recipe, chứa source sau khi unpack.
 
 ### 4.2 Layer — Tập hợp recipes theo chủ đề

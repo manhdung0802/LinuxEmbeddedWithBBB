@@ -305,6 +305,71 @@ int main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code (event_loop_bbb.c)
+
+a) **`AppContext` struct**:
+- Gồm tất cả fd cần thiết: `epfd` (epoll instance), `gpio_fd`, `uart_fd`, `timer_fd`, `signal_fd`.
+- Pattern **"context struct"** — gồm hết state vào 1 struct, truyền qua pointer thay vì dùng global variables.
+
+b) **`epoll_create1(EPOLL_CLOEXEC)`**:
+- Tạo epoll instance. `EPOLL_CLOEXEC` = tự động close fd khi `exec()` (bảo mật).
+- Phiên bản cũ `epoll_create(size)` — tham số `size` bị ignore từ kernel 2.6.8.
+
+c) **`add_to_epoll()` helper**:
+```c
+struct epoll_event ev = { .events = events, .data.fd = fd };
+epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
+```
+- `EPOLL_CTL_ADD` — thêm fd vào epoll monitoring.
+- `.data.fd = fd` — lưu fd vào union `data` để nhận dạng khi event xảy ra.
+- Events: `EPOLLPRI` cho GPIO edge, `EPOLLIN` cho UART/timer/signal.
+
+d) **GPIO setup và initial clear**:
+```c
+char dummy[4]; read(ctx.gpio_fd, dummy, sizeof(dummy));
+```
+- Giống bài 23 (poll_demo.c): phải đọc 1 lần để clear pending event.
+
+e) **timerfd setup**:
+```c
+struct itimerspec ts = {
+    .it_value    = {1, 0},    /* fire lần đầu sau 1s */
+    .it_interval = {1, 0},    /* repeat mỗi 1s */
+};
+```
+- `it_value` = thời gian đến lần fire đầu. `it_interval` = chu kỳ lặp lại.
+- `{0, 0}` cho `it_interval` = one-shot timer (không lặp).
+- `timerfd_settime(tfd, 0, &ts, NULL)` — tham số `0` = relative time. Dùng `TFD_TIMER_ABSTIME` cho absolute.
+
+f) **signalfd setup**:
+```c
+sigprocmask(SIG_BLOCK, &mask, NULL);  /* QUAN TRỌNG: block trước! */
+ctx.signal_fd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
+```
+- **Phải** `sigprocmask(SIG_BLOCK)` trước khi tạo `signalfd`. Nếu không, signal sẽ bị xử lý theo default handler (terminate process) thay vì được chuyển vào fd.
+- `-1` = tạo fd mới. Truyền fd cũ để update mask.
+
+g) **Event loop chính**:
+```c
+int n = epoll_wait(ctx.epfd, events, MAX_EVENTS, -1);
+```
+- `-1` = block vô hạn cho đến khi có event. Không tốn CPU.
+- `n` = số events sẵn sàng. `epoll` chỉ trả về **fd có event** (không scan toàn bộ như `poll`).
+- Vòng `for` xử lý từng event, dùng `events[i].data.fd` để phân loại.
+
+h) **`handle_timer()` — phải đọc 8 byte**:
+```c
+read(ctx->timer_fd, &exp, 8);
+```
+- timerfd **bắt buộc** đọc 8 byte (`uint64_t`) = số lần timer đã fire kể từ lần đọc cuối.
+- **Phải đọc** để clear event, nếu không epoll sẽ báo lại ngay lập tức (level-triggered).
+
+i) **Cleanup thứ tự**:
+- Close tất cả fd: gpio, uart, timer, signal, epfd.
+- Close `epfd` cuối cùng — khi epoll được close, kernel tự remove tất cả fd khỏi monitoring.
+
+> **Bài học**: Event loop pattern này là nền tảng của mọi server/daemon chuyên nghiệp: nginx, systemd, libuv (Node.js), và các embedded application. Kết hợp `epoll` + `signalfd` + `timerfd` để xử lý mọi loại event qua 1 interface thống nhất (fd).
+
 ---
 
 ## 7. Câu hỏi kiểm tra

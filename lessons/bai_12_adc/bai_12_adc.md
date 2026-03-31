@@ -226,6 +226,72 @@ int main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code `adc_read.c`
+
+#### a) ADC nằm ở Wakeup domain
+
+```c
+#define ADC_BASE     0x44E0D000UL  // TSC_ADC base — thuộc L4_WKUP (không phải L4_PER)
+#define CM_WKUP_BASE 0x44E00400UL  // Vì vậy clock cũng thuộc CM_WKUP chứ không phải CM_PER
+```
+
+#### b) Cấu hình ADC module
+
+```c
+adc[ADC_CTRL / 4] = ADC_CTRL_STEPCONFIG_WRITEPROTECT_N;
+// Bit 2 = 1 → cho phép ghi vào STEPCONFIG (bỏ write-protect)
+// Bit 0 = 0 → module vẫn disable — BẮT BUỘC disable trước khi cấu hình
+```
+
+```c
+adc[ADC_CLKDIV / 4] = ADC_CLK_DIV;  // = 3 → ADC clock = 24MHz / (3+1) = 6MHz
+                                     // ADC clock tối đa = 13MHz (datasheet)
+```
+
+```c
+adc[ADC_STEPCONFIG1 / 4] = STEP1_CONFIG;  // = 0x00000000
+// Bit [1:0] = 0 → Mode SW-enabled (trigger bằng phần mềm)
+// Bit [18:15] = 0 → INP = AIN0 (kênh input 0)
+// Bit 27 = 0 → FIFO0 (ghi kết quả vào FIFO 0)
+// Bit 26 = 0 → Single-ended (không phải differential)
+
+adc[ADC_STEPDELAY1 / 4] = STEP1_DELAY;   // = 0x00000F00
+// Bit [17:8] = 0x0F = 15 → sample delay = 15 ADC clock cycles
+// Delay để tụ điện ổn định trước khi lấy mẫu
+```
+
+#### c) Enable và trigger
+
+```c
+adc[ADC_CTRL / 4] = ADC_CTRL_ENABLE | ADC_CTRL_STEPCONFIG_WRITEPROTECT_N;
+// Bit 0 = 1 → Enable module
+// Bit 2 = 1 → giữ write-protect off (để có thể trigger lại)
+```
+
+```c
+adc[ADC_STEPENABLE / 4] = (1 << 1);  // Bật Step 1 (bit 1)
+// Bit 0 = charge step, Bit 1 = step 1, Bit 2 = step 2, ...
+// Khi set, ADC thực hiện 1 lần lấy mẫu theo cấu hình STEPCONFIG1
+// Sau khi xong, bit tự clear về 0
+```
+
+#### d) Đọc kết quả từ FIFO
+
+```c
+while (adc[ADC_FIFO0COUNT / 4] == 0)  // Chờ FIFO có dữ liệu
+    ;  // ADC mất vài µs để chuyển đổi
+
+uint32_t raw = adc[ADC_FIFO0DATA / 4] & 0xFFF;
+// FIFO0DATA format: bit [19:16] = Step ID, bit [11:0] = ADC value
+// & 0xFFF: chỉ lấy 12 bit thấp (giá trị 0..4095)
+
+float voltage = raw * 1.8f / 4095.0f;
+// Vref = 1.8V (cố định trên BBB — KHÔNG phải 3.3V!)
+// Độ phân giải = 1.8V / 4095 ≈ 0.44 mV/LSB
+```
+
+> **Cảnh báo**: Chân AIN trên BBB chỉ chịu được tối đa **1.8V**. Đưa điện áp > 1.8V sẽ **hư hỏng vĩnh viễn** ADC và có thể hư board.
+
 ---
 
 ## 7. ADC qua Linux IIO Subsystem

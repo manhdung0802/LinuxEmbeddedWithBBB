@@ -233,6 +233,80 @@ int main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code
+
+#### a) Các hằng số địa chỉ
+
+```c
+#define PRCM_BASE  0x44E00000UL  // Base address vùng PRCM (Power, Reset, Clock Management)
+                                 // Bao gồm cả CM_PER (0x44E00000) và CM_WKUP (0x44E00400)
+#define PRCM_SIZE  0x2000        // 8KB — đủ bao quát cả CM_PER và CM_WKUP
+                                 // CM_WKUP bắt đầu từ offset 0x400 trong vùng này
+```
+
+```c
+#define CM_PER_GPIO1_CLKCTRL_OFF  0x0AC  // Offset thanh ghi điều khiển clock GPIO1
+#define CM_WKUP_GPIO0_CLKCTRL_OFF 0x408  // GPIO0 thuộc CM_WKUP (wakeup domain), không phải CM_PER
+```
+
+```c
+#define MODULEMODE_ENABLE  0x2          // Giá trị ghi vào bit [1:0] để bật module
+                                        // 0x0 = Disabled, 0x2 = Enabled
+#define IDLEST_FUNCTIONAL  0x0          // Trạng thái bit [17:16] khi module hoạt động bình thường
+                                        // 0x0 = Functional, 0x1 = Transition, 0x2 = Idle, 0x3 = Disabled
+#define IDLEST_SHIFT       16           // IDLEST nằm ở bit 16-17
+#define IDLEST_MASK (0x3 << IDLEST_SHIFT)  // = 0x00030000 — mặt nạ để trích xuất 2 bit IDLEST
+```
+
+#### b) Hàm `prcm_init()` — ánh xạ vùng PRCM
+
+```c
+prcm_base = mmap(NULL, PRCM_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED, mem_fd, PRCM_BASE);
+// Ánh xạ 8KB từ physical address 0x44E00000
+// Sau lệnh này, prcm_base[0] = thanh ghi tại 0x44E00000
+//                prcm_base[0x0AC/4] = CM_PER_GPIO1_CLKCTRL
+//                prcm_base[0x408/4] = CM_WKUP_GPIO0_CLKCTRL
+```
+
+#### c) Hàm `enable_module()` — bật clock và chờ IDLEST
+
+```c
+volatile uint32_t *reg = &prcm_base[offset / 4];
+// Tính virtual address của thanh ghi CLKCTRL cần bật
+// Ví dụ: offset = 0x0AC → &prcm_base[43] → trỏ tới CM_PER_GPIO1_CLKCTRL
+```
+
+```c
+*reg = MODULEMODE_ENABLE | extra_bits;
+// Ví dụ GPIO1: MODULEMODE_ENABLE | (1 << 18) = 0x2 | 0x40000 = 0x40002
+//   Bit [1:0] = 0b10 = ENABLE — bật interface clock cho module
+//   Bit 18 = 1 = OPTFCLKEN — bật optional functional clock (debounce clock cho GPIO)
+// Ví dụ UART1: MODULEMODE_ENABLE | 0 = 0x2 — chỉ cần bật MODULEMODE
+```
+
+```c
+while (((*reg & IDLEST_MASK) >> IDLEST_SHIFT) != IDLEST_FUNCTIONAL) {
+```
+
+Phân tích phép toán từng bước (ví dụ `*reg = 0x00060002`):
+```
+*reg             = 0x00060002
+IDLEST_MASK      = 0x00030000
+*reg & MASK      = 0x00020000   ← trích bit 16-17
+>> IDLEST_SHIFT  = 0x00000002   ← dịch phải 16 bit → giá trị IDLEST = 2 (Idle)
+So với FUNCTIONAL = 0           → chưa bằng → tiếp tục chờ
+```
+
+Vòng lặp kết thúc khi IDLEST = 0 (Functional), nghĩa là module đã bật xong và sẵn sàng sử dụng.
+
+```c
+if (--timeout == 0) { ... return -1; }
+usleep(1000);  // Chờ 1ms giữa mỗi lần kiểm tra
+               // Tổng thời gian timeout tối đa = 1000 × 1ms = 1 giây
+```
+
+> **Bài học**: Luôn có timeout khi polling thanh ghi phần cứng. Nếu module bị lỗi hoặc clock source không khả dụng, vòng lặp vô hạn sẽ treo chương trình.
+
 ---
 
 ## 9. Câu hỏi kiểm tra

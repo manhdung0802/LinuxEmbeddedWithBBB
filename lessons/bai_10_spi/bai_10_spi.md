@@ -301,6 +301,67 @@ int main(void)
 }
 ```
 
+### Giải thích chi tiết từng dòng code `spi_mcp3204.c`
+
+#### a) Cấu hình channel — CHCONF bits
+
+```c
+#define CHCONF_WL8   (7 << 21)   // Word Length = 7+1 = 8 bit
+                                  // Bit [25:21] = 0b00111 = 7 → 8-bit transfer
+#define CHCONF_CLKD4 (4 << 28)   // Clock Divider = 4 → F_SPI = 48MHz / 2^(4+1) = 1.5MHz
+                                  // Bit [31:28] = CLKD
+```
+
+```c
+#define CHCONF_DPE0  (0 << 17)   // Data Pin 0 (MOSI) enabled for TX
+#define CHCONF_DPE1  (1 << 18)   // Data Pin 1 disabled for TX (dùng làm MISO)
+#define CHCONF_IS    (0 << 16)   // Input Select: dùng D0 làm input (MISO)
+```
+
+#### b) `spi_transfer()` — truyền/nhận 1 byte
+
+```c
+while (!(spi0[MCSPI_CH0STAT / 4] & STAT_TXS))  // Đợi TX register rỗng
+    ;
+spi0[MCSPI_TX0 / 4] = byte;                     // Ghi byte vào TX FIFO
+
+while (!(spi0[MCSPI_CH0STAT / 4] & STAT_RXS))  // Đợi RX có dữ liệu
+    ;                                            // (SPI là full-duplex: TX và RX đồng thời)
+return (uint8_t)(spi0[MCSPI_RX0 / 4] & 0xFF);  // Đọc byte nhận được
+```
+
+> **SPI full-duplex**: Mỗi byte gửi đi đồng thời nhận về 1 byte. Vì vậy luôn phải gửi (dù là 0x00) để nhận dữ liệu.
+
+#### c) `mcp3204_read()` — giao thức MCP3204
+
+```c
+uint8_t cmd0 = 0x06 | (channel >> 2);  // Byte 1: Start(1) + SGL/DIFF(1) + D2
+// 0x06 = 0b0000_0110 → Start=1, SGL=1 (single-ended), D2 = channel bit 2
+
+uint8_t cmd1 = (channel & 0x03) << 6;  // Byte 2: D1, D0 (2 bit thấp của channel)
+// Ví dụ channel=3: cmd0=0x07, cmd1=0xC0
+```
+
+```c
+spi0[MCSPI_CH0CONF / 4] |= (1 << 27);   // FORCE=1 → giữ CS LOW suốt 3 byte
+// Nếu không FORCE, CS sẽ nâng lên giữa các byte → MCP3204 mất dữ liệu
+
+uint8_t b0 = spi_transfer(cmd0);  // Gửi lệnh, nhận garbage
+uint8_t b1 = spi_transfer(cmd1);  // Gửi D1/D0, nhận 4 bit cao của ADC
+uint8_t b2 = spi_transfer(0x00);  // Gửi dummy, nhận 8 bit thấp của ADC
+
+spi0[MCSPI_CH0CONF / 4] &= ~(1 << 27);  // FORCE=0 → CS lên HIGH (kết thúc)
+
+return (uint16_t)((b1 & 0x0F) << 8) | b2;  // Ghép 12-bit: b1[3:0] + b2[7:0]
+```
+
+#### d) Tính điện áp
+
+```c
+float voltage = val * 3.3f / 4096.0f;  // Vref = 3.3V, 12-bit → 4096 mức
+// Độ phân giải = 3.3V / 4096 ≈ 0.8mV/LSB
+```
+
 ---
 
 ## 7. SPI từ Linux Userspace (`/dev/spidev0.0`)
