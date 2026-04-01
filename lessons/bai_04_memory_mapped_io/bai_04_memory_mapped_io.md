@@ -659,6 +659,23 @@ gpio_mmap_cleanup(&gpio1);
 4. Để bật LED GPIO1_21 bằng mmap(), bạn thực hiện bao nhiêu bước? Liệt kê.
 5. So sánh `echo` vào sysfs vs viết code C mmap(): cách nào nhanh hơn? Tại sao?
 
+**Đáp án (đã hiệu chỉnh và tóm tắt)**
+
+- **1 — Vì sao userspace không truy cập trực tiếp physical address:** Userspace chạy trong không gian địa chỉ ảo quản lý bởi kernel/MMU. Việc cho phép truy cập trực tiếp physical address phá vỡ tách biệt bộ nhớ giữa các tiến trình và làm mất an toàn hệ thống; kernel sử dụng page table để ánh xạ và kiểm soát quyền truy cập, do đó userspace chỉ được phép thông qua các interface của kernel (ví dụ `mmap` trên `/dev/mem`, driver, sysfs) khi được phép.
+
+- **2 — `mmap()` làm gì và tham số chính:** `mmap()` tạo một ánh xạ giữa một vùng trong file/device (ở đây `/dev/mem` — offset = physical address) và virtual address của tiến trình. Signature có 6 tham số: `addr, length, prot, flags, fd, offset` (tức là địa chỉ đề xuất, kích thước, quyền, cờ, file descriptor, offset trong file).
+
+- **3 — Tại sao cần `volatile`:** Các thanh ghi phần cứng có thể thay đổi độc lập với luồng chương trình (do phần cứng hoặc các CPU khác), và compile có thể tối ưu hóa (cache hoặc reorder) các lần đọc/ghi; `volatile` buộc compiler luôn thực hiện đọc/ghi thực tế tới địa chỉ đó, tránh tối ưu làm sai hành vi với phần cứng.
+
+- **4 — Các bước bật LED GPIO1_21 bằng mmap():**
+    - Mở `/dev/mem` với quyền đọc/ghi (cần root).
+    - Gọi `mmap()` để ánh xạ vùng chứa `GPIO1` (ví dụ `GPIO1_BASE`, `GPIO1_SIZE`) vào không gian ảo của tiến trình.
+    - Đọc thanh ghi `GPIO_OE`, clear bit 21 (set thành 0) để cấu hình chân là output, rồi ghi lại `GPIO_OE`.
+    - Ghi `GPIO_MASK` vào `GPIO_SETDATAOUT` để đặt chân HIGH (bật LED); ghi vào `GPIO_CLEARDATAOUT` để clear (tắt LED).
+    - `munmap()` và `close(fd)` khi hoàn tất.
+
+- **5 — Tốc độ: mmap() vs sysfs:** `mmap()` thường nhanh hơn so với thao tác qua sysfs vì mã userspace thao tác trực tiếp lên thanh ghi (ghi bộ nhớ ảo đã ánh xạ) và tránh vòng gọi hệ thống/điều khiển kernel cho mỗi thao tác. Sysfs đi qua API kernel (syscalls, xử lý chuỗi, kiểm tra quyền) nên có chi phí overhead cao hơn; tuy nhiên mmap yêu cầu cẩn trọng vì bỏ qua nhiều cơ chế bảo vệ kernel.
+
 ---
 
 ## 11. Chuẩn bị cho bài sau

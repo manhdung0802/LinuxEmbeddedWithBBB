@@ -84,6 +84,26 @@ Ví dụ:
 	- Lỗi `invalid GPIO` thường liên quan cấu hình kernel/driver/pinmux hoặc GPIO không thuộc dải hợp lệ
 	- Nên kiểm tra nhanh bằng `/sys/class/leds/` trước khi debug GPIO generic
 
+### Bài 4 - Memory-mapped I/O
+
+- **Mô tả**: Giới thiệu cách truy cập thanh ghi phần cứng từ userspace bằng cách ánh xạ địa chỉ vật lý sang địa chỉ ảo với `mmap()` trên `/dev/mem`.
+
+- **Các điểm chính**:
+  - Virtual memory và vai trò của MMU: userspace không truy cập trực tiếp physical address.
+  - Dùng `/dev/mem` + `mmap()` để ánh xạ vùng thanh ghi (ví dụ `GPIO1_BASE`).
+  - Thanh ghi GPIO quan trọng: `GPIO_OE`, `GPIO_DATAOUT`, `GPIO_SETDATAOUT`, `GPIO_CLEARDATAOUT`.
+  - Dùng `volatile` khi truy cập thanh ghi; luôn kiểm tra pinmux, clock và Device Tree trước khi thao tác.
+
+- **Ví dụ**: `lessons/bai_04_memory_mapped_io/examples/led_mmap.c` — minh họa đọc/sửa `GPIO_OE` và dùng `SETDATAOUT`/`CLEARDATAOUT` để toggle LED.
+
+- **Lệnh thử nhanh**:
+```bash
+gcc -o led_mmap lessons/bai_04_memory_mapped_io/examples/led_mmap.c
+sudo ./led_mmap
+```
+
+- **Trạng thái**: Completed (2026-04-01) — nội dung đã mở rộng; ví dụ cần kiểm tra thực thi trên hardware.
+
 ---
 
 ## Giai đoạn 2: Ngoại vi cơ bản

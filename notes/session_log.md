@@ -6,7 +6,7 @@
 ---
 
 ## Trạng thái hiện tại
-- **Bài học tiếp theo**: Bài 4 - Memory-mapped I/O (`/dev/mem`, `mmap()`)
+- **Bài học tiếp theo**: Bài 5 - GPIO (tiếp theo sau Bài 4 hoàn thành)
 - **Giai đoạn**: 1 - Nền tảng
 - **Tổng số buổi học**: 3
 
@@ -69,6 +69,13 @@
 	- Có thể dùng interface LED (`/sys/class/leds/...`) để kiểm chứng nhanh trước khi đi sâu GPIO generic
 - **Câu hỏi kiểm tra**: ✅ Đã trả lời tốt; cần chuẩn hóa thêm thuật ngữ ở `/dev/mem` và vai trò sysfs/driver
 - **Bài tiếp theo**: Bài 4 - Memory-mapped I/O (`/dev/mem`, `mmap()`)
+
+---
+
+### Cập nhật nhỏ — 2026-04-01
+- **Hành động**: Kiểm tra và hiệu chỉnh đáp án phần "Câu hỏi kiểm tra" của Bài 4; chèn phần **Đáp án (đã hiệu chỉnh và tóm tắt)** vào file bài học.
+- **Files**: lessons/bai_04_memory_mapped_io/bai_04_memory_mapped_io.md
+- **Ghi chú**: Tóm tắt sửa các điểm: cơ chế virtual memory, tham số `mmap()`, ý nghĩa `volatile`, trình tự ánh xạ và điều khiển GPIO, và lý do mmap nhanh hơn sysfs.
 
 <!--
 FORMAT cho mỗi buổi:
