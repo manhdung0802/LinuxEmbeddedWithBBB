@@ -1,14 +1,15 @@
-# 📖 Hướng Dẫn Sử Dụng Agent "BBB Embedded Linux Tutor"
+# 📖 Hướng Dẫn Sử Dụng Agent "BBB Linux Device Driver Tutor"
 
 ## Agent này là gì?
-Đây là một agent tùy chỉnh trong VS Code Copilot, được thiết kế để **dạy lập trình embedded AM335x (BeagleBone Black)** kết hợp **lập trình Linux** theo lộ trình từ dễ đến khó.
+Đây là một agent tùy chỉnh trong VS Code Copilot, được thiết kế để **dạy viết Linux Device Driver cho AM335x (BeagleBone Black)** theo lộ trình từ dễ đến khó.
 
 ## Khi nào dùng agent này?
-- Khi bạn muốn **học bài mới** trong lộ trình AM335x
-- Khi cần **giải thích thanh ghi**, cách config phần cứng
-- Khi muốn hiểu **code embedded Linux** (mmap, /dev/mem, driver, ...)
-- Khi cần tra cứu thông tin từ **AM335x TRM** hoặc **BBB schematic**
-- Khi muốn viết **code thực hành** chạy trên BeagleBone Black
+- Khi bạn muốn **học bài mới** trong lộ trình device driver
+- Khi cần **giải thích kernel API**, subsystem architecture, data flow trong kernel
+- Khi muốn hiểu **cách viết driver** (kernel module, char device, platform driver, bus driver...)
+- Khi cần tra cứu **thanh ghi AM335x** từ TRM để viết driver truy cập phần cứng
+- Khi muốn viết **Device Tree binding** cho driver
+- Khi muốn **build, load và test driver** trên BeagleBone Black
 
 ## Cách sử dụng
 
@@ -21,9 +22,10 @@ Agent sẽ tự đọc `notes/session_log.md` để biết bạn đã học tớ
 
 ### Hỏi thắc mắc
 ```
-Giải thích thanh ghi GPIO_OE là gì?
-Tại sao phải set bit 18 trong CM_PER?
-Cho tôi ví dụ code blink LED bằng mmap
+Giải thích probe() trong platform driver hoạt động thế nào?
+Tại sao phải dùng devm_ioremap thay vì ioremap?
+Cho tôi ví dụ viết GPIO driver đơn giản
+Cách viết Device Tree binding cho driver tự viết?
 ```
 
 ### Ôn bài
@@ -42,14 +44,15 @@ Còn bao nhiêu bài nữa trong giai đoạn 1?
 
 ```
 LinuxEmbedded/
-├── .agent.md              ← Cấu hình agent (không cần sửa)
+├── .claude/agents/bbb.agent.md ← Cấu hình agent (không cần sửa)
 ├── README.md              ← 📘 Ghi chú kiến thức để ôn tập
 ├── HUONG_DAN_SU_DUNG.md   ← 📖 File này - hướng dẫn sử dụng
 ├── BBB_docs/              ← Tài liệu gốc
 │   ├── datasheets/        ← TRM (spruh73q.pdf), SRM, pin tables
 │   └── schematics/        ← Sơ đồ nguyên lý BBB
 ├── lessons/               ← Nội dung chi tiết từng bài học
-├── projects/              ← Code thực hành, bài tập
+├── projects/              ← Driver projects thực hành
+├── scripts/               ← Build scripts cho kernel module
 └── notes/                 ← Ghi chú & lịch sử
     └── session_log.md     ← 📝 Tóm tắt buổi học (AI đọc file này)
 ```
@@ -66,7 +69,9 @@ LinuxEmbedded/
 
 ## Lưu ý
 - Agent dạy bằng **tiếng Việt**
-- Tập trung vào **register-level** programming, hạn chế thư viện
+- Tập trung vào **Linux kernel device driver** cho AM335x
+- Kiến thức phần cứng (thanh ghi, pinmux) được dạy trong ngữ cảnh driver kernel, không phải bare-metal
 - Mỗi bài đi **từng bước**, có thể hỏi bất cứ lúc nào
 - Sau mỗi buổi, kiến thức tự động được ghi vào `README.md` và `session_log.md`
-- Code ví dụ sử dụng **ngôn ngữ C** là chính
+- Code driver sử dụng **ngôn ngữ C**, tuân thủ Linux kernel coding style
+- Mỗi driver ví dụ kèm **Makefile** và **Device Tree snippet** (nếu cần)

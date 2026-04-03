@@ -1,2 +1,0 @@
-/* uart_init.c - khởi tạo UART1 115200-8N1 bằng mmap */
-/* Xem chi tiết trong bai_08_uart.md, Section 7 */

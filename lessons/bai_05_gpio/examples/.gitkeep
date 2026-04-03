@@ -1,2 +1,0 @@
-/* blink_led_usr0.c - ví dụ blink LED USR0 bằng mmap */
-/* Xem chi tiết trong bai_05_gpio.md, Section 6 */

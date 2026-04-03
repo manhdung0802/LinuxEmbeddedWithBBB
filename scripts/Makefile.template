@@ -1,0 +1,24 @@
+# Template Makefile cho out-of-tree kernel module
+# Copy file này vào thư mục driver và đổi tên MODULE_NAME
+#
+# Build: make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf-
+# Clean: make clean
+
+MODULE_NAME := hello_module
+
+# Nếu KERNELRELEASE được định nghĩa, đây là lần gọi thứ 2 từ kernel build system
+ifneq ($(KERNELRELEASE),)
+    obj-m := $(MODULE_NAME).o
+else
+    # Đường dẫn tới kernel source / kernel headers
+    # Thay đổi cho phù hợp với hệ thống của bạn
+    KERNEL_DIR ?= /lib/modules/$(shell uname -r)/build
+    PWD := $(shell pwd)
+
+default:
+	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) modules
+
+clean:
+	$(MAKE) -C $(KERNEL_DIR) M=$(PWD) clean
+
+endif

@@ -1,2 +1,0 @@
-/* gpio_interrupt_poll.c - chờ GPIO interrupt bằng poll() */
-/* Xem chi tiết trong bai_07_gpio_nang_cao.md, Section 5 */

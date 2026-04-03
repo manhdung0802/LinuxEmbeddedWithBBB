@@ -1,16 +1,18 @@
-# 📘 Ghi Chú Kiến Thức - AM335x & Embedded Linux
+# 📘 Ghi Chú Kiến Thức - AM335x Linux Device Driver
 
 > File này được cập nhật sau mỗi buổi học để ôn tập lại kiến thức.
-> Mỗi phần sẽ tóm tắt: khái niệm, thanh ghi quan trọng, câu lệnh Linux, code mẫu.
+> Mỗi phần sẽ tóm tắt: khái niệm, kernel API, Device Tree, code mẫu driver.
 
 ---
 
 ## 📋 Mục lục
 - [Giai đoạn 1: Nền tảng](#giai-đoạn-1-nền-tảng)
-- [Giai đoạn 2: Ngoại vi cơ bản](#giai-đoạn-2-ngoại-vi-cơ-bản)
-- [Giai đoạn 3: Ngoại vi nâng cao](#giai-đoạn-3-ngoại-vi-nâng-cao)
-- [Giai đoạn 4: Hệ thống](#giai-đoạn-4-hệ-thống)
-- [Câu lệnh Linux thường dùng](#câu-lệnh-linux-thường-dùng)
+- [Giai đoạn 2: Character Device Driver](#giai-đoạn-2-character-device-driver)
+- [Giai đoạn 3: GPIO & Pin Control](#giai-đoạn-3-gpio--pin-control)
+- [Giai đoạn 4: Bus & Peripheral Drivers](#giai-đoạn-4-bus--peripheral-drivers)
+- [Giai đoạn 5: Advanced Subsystems](#giai-đoạn-5-advanced-subsystems)
+- [Giai đoạn 6: Tích hợp & Debug](#giai-đoạn-6-tích-hợp--debug)
+- [Kernel API thường dùng](#kernel-api-thường-dùng)
 - [Địa chỉ thanh ghi quan trọng](#địa-chỉ-thanh-ghi-quan-trọng)
 
 ---
@@ -52,83 +54,53 @@ register_address = base_address + offset
 	3. Bật clock module
 	4. Đọc/ghi đúng thanh ghi và bit
 
-### Bài 3 - Linux cơ bản cho Embedded
+### Bài 3–6 - Thiết lập môi trường, Device Tree, Kernel Module, MMIO
 
-- Cấu trúc thư mục quan trọng khi làm embedded Linux:
-	- `/dev`: thiết bị dạng file (UART, I2C, SPI, eMMC, `/dev/mem`)
-	- `/sys`: thuộc tính thiết bị do kernel export (sysfs)
-	- `/proc`: thông tin runtime của kernel và process
-
-- Sysfs GPIO thực tế:
-	- Ban đầu thường chỉ có `export`, `unexport`, `gpiochip*`
-	- Thư mục `gpioN` chỉ xuất hiện sau khi export thành công
-	- Cần quyền root khi ghi vào sysfs node nhạy cảm
-
-- Công thức đổi tên GPIO từ TRM sang Linux:
-
-```text
-linux_gpio_number = (module * 32) + bit
-```
-
-Ví dụ:
-	- `GPIO2_3 = 67`
-	- `GPIO1_29 = 61`
-
-- Device Tree:
-	- `.dts` là file text mô tả phần cứng
-	- Biên dịch thành `.dtb`
-	- U-Boot nạp `.dtb`, kernel đọc để tạo thiết bị/driver tương ứng
-
-- Bài học rút ra từ thực hành:
-	- Lỗi `Permission denied` khi ghi sysfs là lỗi quyền
-	- Lỗi `invalid GPIO` thường liên quan cấu hình kernel/driver/pinmux hoặc GPIO không thuộc dải hợp lệ
-	- Nên kiểm tra nhanh bằng `/sys/class/leds/` trước khi debug GPIO generic
-
-### Bài 4 - Memory-mapped I/O
-
-- **Mô tả**: Giới thiệu cách truy cập thanh ghi phần cứng từ userspace bằng cách ánh xạ địa chỉ vật lý sang địa chỉ ảo với `mmap()` trên `/dev/mem`.
-
-- **Các điểm chính**:
-  - Virtual memory và vai trò của MMU: userspace không truy cập trực tiếp physical address.
-  - Dùng `/dev/mem` + `mmap()` để ánh xạ vùng thanh ghi (ví dụ `GPIO1_BASE`).
-  - Thanh ghi GPIO quan trọng: `GPIO_OE`, `GPIO_DATAOUT`, `GPIO_SETDATAOUT`, `GPIO_CLEARDATAOUT`.
-  - Dùng `volatile` khi truy cập thanh ghi; luôn kiểm tra pinmux, clock và Device Tree trước khi thao tác.
-
-- **Ví dụ**: `lessons/bai_04_memory_mapped_io/examples/led_mmap.c` — minh họa đọc/sửa `GPIO_OE` và dùng `SETDATAOUT`/`CLEARDATAOUT` để toggle LED.
-
-- **Lệnh thử nhanh**:
-```bash
-gcc -o led_mmap lessons/bai_04_memory_mapped_io/examples/led_mmap.c
-sudo ./led_mmap
-```
-
-- **Trạng thái**: Completed (2026-04-01) — nội dung đã mở rộng; ví dụ cần kiểm tra thực thi trên hardware.
+*(Sẽ được cập nhật khi học)*
 
 ---
 
-## Giai đoạn 2: Ngoại vi cơ bản
+## Giai đoạn 2: Character Device Driver
 
 *(Sẽ được cập nhật sau mỗi bài học)*
 
 ---
 
-## Giai đoạn 3: Ngoại vi nâng cao
+## Giai đoạn 3: GPIO & Pin Control
 
 *(Sẽ được cập nhật sau mỗi bài học)*
 
 ---
 
-## Giai đoạn 4: Hệ thống
+## Giai đoạn 4: Bus & Peripheral Drivers
 
 *(Sẽ được cập nhật sau mỗi bài học)*
 
 ---
 
-## Câu lệnh Linux thường dùng
+## Giai đoạn 5: Advanced Subsystems
 
-| Lệnh | Mô tả |
-|-------|--------|
-| *(sẽ cập nhật)* | |
+*(Sẽ được cập nhật sau mỗi bài học)*
+
+---
+
+## Giai đoạn 6: Tích hợp & Debug
+
+*(Sẽ được cập nhật sau mỗi bài học)*
+
+---
+
+## Kernel API thường dùng
+
+| API | Mô tả |
+|-----|--------|
+| `module_init()` / `module_exit()` | Đăng ký hàm init/cleanup cho kernel module |
+| `platform_driver_register()` | Đăng ký platform driver |
+| `devm_ioremap()` | Map physical address sang kernel virtual address (managed) |
+| `readl()` / `writel()` | Đọc/ghi 32-bit register |
+| `devm_request_irq()` | Đăng ký interrupt handler (managed) |
+| `copy_to_user()` / `copy_from_user()` | Truyền data giữa kernel ↔ userspace |
+| *(sẽ cập nhật thêm)* | |
 
 ---
 
@@ -141,6 +113,8 @@ sudo ./led_mmap
 | UART0 | Base | 0x44E09000 | UART console chính trên BBB |
 | CONTROL MODULE | Base | 0x44E10000 | Pinmux và pad control |
 | GPIO1 | Base | 0x4804C000 | GPIO bank 1 |
+| GPIO2 | Base | 0x481AC000 | GPIO bank 2 |
+| GPIO3 | Base | 0x481AE000 | GPIO bank 3 |
 
 ---
 
