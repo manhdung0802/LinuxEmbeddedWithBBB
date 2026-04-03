@@ -6,10 +6,15 @@
 ---
 
 ## Trạng thái hiện tại
-- **Bài học tiếp theo**: Bài 3 - Thiết lập môi trường phát triển (cross-compile, kernel source, build)
-- **Giai đoạn**: 1 - Nền tảng
+- **Bài học tiếp theo**: Bài 3 - Linux Boot Process & Kernel Build (ROM→MLO→U-Boot→Kernel→rootfs; build kernel cho AM335x; driver loading order)
+- **Giai đoạn**: 1 - Nền tảng Linux Kernel (Bài 1-9)
 - **Tổng số buổi học**: 2
-- **Lộ trình**: Linux Device Driver cho AM335x (chuyển từ register-level sang driver-focused từ bài 3)
+- **Tổng số bài**: 35
+- **Lộ trình**: Linux Device Driver + AM335x Hardware Deep-Dive + BBB Board Mapping
+  - Mỗi bài peripheral = 0.BBB Connection + 1.Hardware registers (TRM) + 2.Linux Driver (kernel API) + 3.Device Tree + 4.Thực hành
+  - Tham chiếu per-peripheral: `lessons/mapping/` (gpio, pinmux, intc, i2c, spi, uart, pwm, timer, adc, edma, watchdog, clock)
+  - Bài mới so với lộ trình cũ: Bài 3 (Boot Process), Bài 12 (Register→Driver), Bài 18 (regmap)
+  - Thứ tự đã tối ưu: Char Device (10-11) trước peripheral; Concurrency (17) sau IRQ; regmap (18) trước bus drivers
 
 ---
 
@@ -40,7 +45,7 @@
 - BBB là một board hoàn chỉnh, không chỉ có AM335x
 - Pinmux quyết định chức năng thực tế của từng chân
 - Mỗi GPIO module có vùng địa chỉ riêng và cùng một layout thanh ghi
-- **Bài tiếp theo**: Bài 3 - Thiết lập môi trường phát triển
+- **Bài tiếp theo**: Bài 3 - Linux Boot Process & Kernel Build
 
 <!--
 FORMAT cho mỗi buổi:
