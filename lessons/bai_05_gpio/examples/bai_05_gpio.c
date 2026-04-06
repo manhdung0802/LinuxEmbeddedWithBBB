@@ -16,7 +16,7 @@
 #define CM_PER_GPIO1_CLKCTRL 0xAC
 
 #define PAGE_SIZE 4096 // map de chua du offset
-#define LED21 (1 << 24)
+#define LED21 (1 << 21)
 
 int main(void)
 {
@@ -49,7 +49,7 @@ int main(void)
         return 1;
     }
 
-    gpio1_base = (volatile uint32_t*)mmap(NULL, PAGE_SIZE, PROT_WRITE | PROT_WRITE, MAP_SHARED, fd, GPIO1_PHY_ADD);
+    gpio1_base = (volatile uint32_t*)mmap(NULL, PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, GPIO1_PHY_ADD);
     if(gpio1_base == MAP_FAILED){
         perror("mmap gpio1_base failed\n");
         munmap((void*)clk_base, PAGE_SIZE);
@@ -60,9 +60,12 @@ int main(void)
 
     // config clock 
     clk_base[CM_PER_GPIO1_CLKCTRL / 4] = (1 << 18) | 0x2;
+    printf("clk_base[CM_PER_GPIO1_CLKCTRL / 4] 0x%08x\n", clk_base[CM_PER_GPIO1_CLKCTRL / 4]);
 
     // config pinmux
     ctrl_base[CONF_GPMC_A5 / 4] = 0x07;
+
+    printf("ctrl_base[CONF_GPMC_A5 / 4] 0x%08x\n", ctrl_base[CONF_GPMC_A5 / 4]);
 
     // config gpio1
     gpio1_base[GPIO1_OE / 4] &= ~LED21; // 0000 0000 0010 0000 0000 0000 0000 0000
@@ -72,10 +75,12 @@ int main(void)
     {    
         // On led
         gpio1_base[GPIO1_SETDATAOUT / 4] = LED21;
+        printf("gpio1_base[GPIO1_SETDATAOUT / 4] 0x%08x\n", gpio1_base[GPIO1_SETDATAOUT / 4]);
         sleep(1);
 
         // Off led
         gpio1_base[GPIO1_CLEARDATAOUT / 4] = LED21;
+        printf("gpio1_base[GPIO1_CLEARDATAOUT / 4] 0x%08x\n", gpio1_base[GPIO1_CLEARDATAOUT / 4]);
         sleep(1);
     }
     munmap((void *)gpio1_base, PAGE_SIZE);
