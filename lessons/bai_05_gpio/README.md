@@ -30,3 +30,8 @@
 - `examples/` — Code ví dụ blink LED
 - `exercises/` — Bài tập thực hành
 - `solutions/` — Lời giải
+
+## Trạng thái
+
+- **Hoàn thành:** 2026-04-07 — Quiz mục 8 đã trả lời và đánh giá nhanh.
+- **Tiếp theo:** Chuẩn bị Bài 06 - Clock Module

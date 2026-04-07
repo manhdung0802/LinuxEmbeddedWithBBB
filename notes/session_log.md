@@ -72,6 +72,43 @@
 
 ---
 
+### Buổi 4 - 2026-03-31
+- **Chủ đề**: Hoàn thiện nội dung bài 4 và mở rộng giải thích cho các bài tiếp theo
+- **Bài học số**: 4 → 32 (tài liệu + ví dụ code)
+- **Nội dung chính thực hiện hôm nay**:
+	- Hoàn chỉnh và mở rộng phần giải thích chi tiết cho `bai_04_memory_mapped_io.md` (virtual memory, page tables, TRM lookup, `led_mmap.c` chi tiết từng dòng).
+	- Thêm xử lý `SIGINT` vào `led_mmap.c` để cleanup (munmap/close) khi người dùng nhấn Ctrl+C.
+	- Thay `sleep(0.5)` bằng `usleep(500000)` trong ví dụ để tránh truncation bug.
+	- Tự động chèn phần **"Giải thích chi tiết từng dòng code"** (line-by-line) cho tất cả các bài từ **Bài 05** tới **Bài 32** nơi có ví dụ code.
+	- Cập nhật nhiều file markdown bài học: bài 05 → bài 32 (thêm các mục a), b), c) giải thích các include, macro, pointer arithmetic, register access, copy_to_user etc.).
+	- Thêm, chỉnh sửa các ví dụ C nhỏ (ví dụ `led_mmap.c` đã mở rộng điều khiển 4 LED), và sửa các Makefile/recipe mô tả nơi cần.
+
+- **Tổng quan kết quả**:
+	- Đã hoàn thành chèn giải thích chi tiết từng dòng cho mọi bài có ví dụ code (Bài 05 → Bài 32).
+	- `notes/session_log.md` được cập nhật để lần tới AI/nhóm biết chính xác điểm dừng và file đã chỉnh sửa.
+
+- **Bước tiếp theo đề xuất**:
+	1. Kiểm tra git status, commit các thay đổi với message súc tích.
+	2. Đẩy (push) lên remote `origin` (cần quyền/SSH credential trên máy của bạn).
+	3. Nếu muốn, tôi có thể tạo PR (nếu repo có branch riêng) hoặc mở issue tóm tắt thay đổi.
+
+### Buổi 5 - 2026-04-07
+- **Chủ đề**: GPIO — Control Module, Pad Config và Toggle LED
+- **Bài học số**: 5
+- **Nội dung chính**:
+	- Thực hành ánh xạ `mmap()` cho `GPIO1`, `Control Module`, `CM_PER` và blink LED USR0 (GPIO1_21).
+	- Hiểu thứ tự cần thiết: enable clock → pinmux → set direction → set/clear data.
+	- Trả lời quiz mục 8 trong `bai_05_gpio.md` và đã nhận xét, giải thích nhanh.
+- **Kiến thức đã nắm**:
+	- Cấu trúc thanh ghi GPIO (`GPIO_OE`, `GPIO_DATAIN`, `GPIO_SETDATAOUT`, `GPIO_CLEARDATAOUT`).
+	- Pinmux `conf_gpmc_a5` cho LED USR0 và cách tính Linux GPIO number (module*32 + bit).
+	- Tác dụng của clock module (CM_PER_GPIO1_CLKCTRL) và ảnh hưởng khi không enable clock.
+- **Files cập nhật**:
+	- lessons/bai_05_gpio/bai_05_gpio.md
+	- lessons/bai_05_gpio/README.md
+	- notes/session_log.md (mục này)
+- **Ghi chú**: Quiz Bài 05 đã được thu thập và đánh giá nhanh; sẵn sàng qua Bài 06.
+
 ### Cập nhật nhỏ — 2026-04-01
 - **Hành động**: Kiểm tra và hiệu chỉnh đáp án phần "Câu hỏi kiểm tra" của Bài 4; chèn phần **Đáp án (đã hiệu chỉnh và tóm tắt)** vào file bài học.
 - **Files**: lessons/bai_04_memory_mapped_io/bai_04_memory_mapped_io.md
@@ -87,55 +124,3 @@ FORMAT cho mỗi buổi:
 - **Thắc mắc/Lưu ý**: ...
 - **Bài tiếp theo**: ...
 -->
-
-### Buổi 4 - 2026-03-31
-- **Chủ đề**: Hoàn thiện nội dung bài 4 và mở rộng giải thích cho các bài tiếp theo
-- **Bài học số**: 4 → 32 (tài liệu + ví dụ code)
-- **Nội dung chính thực hiện hôm nay**:
-	- Hoàn chỉnh và mở rộng phần giải thích chi tiết cho `bai_04_memory_mapped_io.md` (virtual memory, page tables, TRM lookup, `led_mmap.c` chi tiết từng dòng).
-	- Thêm xử lý `SIGINT` vào `led_mmap.c` để cleanup (munmap/close) khi người dùng nhấn Ctrl+C.
-	- Thay `sleep(0.5)` bằng `usleep(500000)` trong ví dụ để tránh truncation bug.
-	- Tự động chèn phần **"Giải thích chi tiết từng dòng code"** (line-by-line) cho tất cả các bài từ **Bài 05** tới **Bài 32** nơi có ví dụ code.
-	- Cập nhật nhiều file markdown bài học: bài 05 → bài 32 (thêm các mục a), b), c) giải thích các include, macro, pointer arithmetic, register access, copy_to_user etc.).
-	- Thêm, chỉnh sửa các ví dụ C nhỏ (ví dụ `led_mmap.c` đã mở rộng điều khiển 4 LED), và sửa các Makefile/recipe mô tả nơi cần.
-
-- **Các file đã thay đổi (chính)**:
-	- lessons/bai_04_memory_mapped_io/bai_04_memory_mapped_io.md
-	- lessons/bai_04_memory_mapped_io/examples/led_mmap.c
-	- lessons/bai_05_gpio/bai_05_gpio.md
-	- lessons/bai_06_clock_module/bai_06_clock_module.md
-	- lessons/bai_07_gpio_nang_cao/bai_07_gpio_nang_cao.md
-	- lessons/bai_08_uart/bai_08_uart.md
-	- lessons/bai_09_i2c/bai_09_i2c.md
-	- lessons/bai_10_spi/bai_10_spi.md
-	- lessons/bai_11_timer_pwm/bai_11_timer_pwm.md
-	- lessons/bai_12_adc/bai_12_adc.md
-	- lessons/bai_13_interrupt_controller/bai_13_interrupt_controller.md
-	- lessons/bai_14_dma_edma/bai_14_dma_edma.md
-	- lessons/bai_15_pru_icss/bai_15_pru_icss.md
-	- lessons/bai_16_device_tree/bai_16_device_tree.md
-	- lessons/bai_17_kernel_module/bai_17_kernel_module.md
-	- lessons/bai_18_char_device_driver/bai_18_char_device_driver.md
-	- lessons/bai_19_platform_driver/bai_19_platform_driver.md
-	- lessons/bai_20_debug_techniques/bai_20_debug_techniques.md
-	- lessons/bai_21_process_management/bai_21_process_management.md
-	- lessons/bai_22_multithreading/bai_22_multithreading.md
-	- lessons/bai_23_file_io_nang_cao/bai_23_file_io_nang_cao.md
-	- lessons/bai_24_event_handling/bai_24_event_handling.md
-	- lessons/bai_25_device_tree_chuyen_sau/bai_25_device_tree_chuyen_sau.md
-	- lessons/bai_26_watchdog_timer/bai_26_watchdog_timer.md
-	- lessons/bai_27_yocto_overview/bai_27_yocto_overview.md
-	- lessons/bai_28_yocto_setup/bai_28_yocto_setup.md
-	- lessons/bai_29_yocto_recipe/bai_29_yocto_recipe.md
-	- lessons/bai_30_custom_bbb_image/bai_30_custom_bbb_image.md
-	- lessons/bai_31_bsp_layer_rieng/bai_31_bsp_layer_rieng.md
-	- lessons/bai_32_tich_hop_driver_ung_dung/bai_32_tich_hop_driver_ung_dung.md
-
-- **Tổng quan kết quả**:
-	- Đã hoàn thành chèn giải thích chi tiết từng dòng cho mọi bài có ví dụ code (Bài 05 → Bài 32).
-	- `notes/session_log.md` được cập nhật để lần tới AI/nhóm biết chính xác điểm dừng và file đã chỉnh sửa.
-
-- **Bước tiếp theo đề xuất**:
-	1. Kiểm tra git status, commit các thay đổi với message súc tích.
-	2. Đẩy (push) lên remote `origin` (cần quyền/SSH credential trên máy của bạn).
-	3. Nếu muốn, tôi có thể tạo PR (nếu repo có branch riêng) hoặc mở issue tóm tắt thay đổi.

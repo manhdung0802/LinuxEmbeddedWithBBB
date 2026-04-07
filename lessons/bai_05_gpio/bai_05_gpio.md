@@ -168,8 +168,8 @@ Nếu bỏ qua bước 1 hoặc 2, GPIO sẽ không hoạt động dù set đún
 #define CONF_GPMC_A5        0x854   /* GPIO1_21 */
 
 /* Kích thước page và mask */
-#define PAGE_SIZE           4096
-#define PAGE_MASK           (~(PAGE_SIZE - 1))
+#define PAGE_SIZE           4096 // bytes 0x1000
+#define PAGE_MASK           (~(PAGE_SIZE - 1)) //0xfffff000
 
 /* Bit GPIO1_21 */
 #define USR0_BIT            (1U << 21)
