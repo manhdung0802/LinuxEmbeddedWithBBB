@@ -7,6 +7,7 @@
 - Nắm vững thanh ghi `CM_PER_xxx_CLKCTRL` và `CM_WKUP_xxx_CLKCTRL`
 - Biết cách bật/tắt module theo lập trình register-level
 - Giải thích nguyên lý clock gating để tiết kiệm điện
+- Bật clock cần có thời gian chờ để clock chuyển qua status Func
 
 ---
 
@@ -309,6 +310,7 @@ usleep(1000);  // Chờ 1ms giữa mỗi lần kiểm tra
 
 ---
 
+
 ## 9. Câu hỏi kiểm tra
 
 1. Tại sao phải bật clock module trước khi ghi vào thanh ghi GPIO?
@@ -328,3 +330,14 @@ usleep(1000);  // Chờ 1ms giữa mỗi lần kiểm tra
 | CM_WKUP registers | spruh73q.pdf | Section 8.1.12.2 |
 | CM_PER_GPIO1_CLKCTRL | spruh73q.pdf | Section 8.1.12.1.28 |
 | IDLEST bit definition | spruh73q.pdf | Section 8.1.12 (Register Description) |
+
+
+## 11. Ghi chú thực hành (tóm tắt)
+
+- `PRCM_SIZE = 0x2000` (8KB) là lựa chọn an toàn và tiện lợi: hệ thống page thường 4KB, nhưng ánh xạ 8KB từ `0x44E00000` cho phép truy cập đồng thời `CM_PER` và `CM_WKUP` (và một vài CM lân cận) bằng một lần `mmap()`. Một mapping 4KB có thể đủ trong nhiều trường hợp, nhưng 8KB giảm nhu cầu remap.
+- Bật clock thực hiện bằng cách ghi vào một **CLKCTRL register** của module (ví dụ `CM_PER_GPIO1_CLKCTRL`); thao tác này thiết lập `MODULEMODE` và có thể kèm các bit tùy chọn (ví dụ `OPTFCLKEN` cho `GPIO1`). Không nhầm với việc thao tác bit dữ liệu của GPIO (SET/CLEAR DATAOUT).
+- Để kiểm tra trạng thái dùng `IDLEST_MASK = (0x3 << IDLEST_SHIFT)` (tức `0x00030000`) rồi dịch phải `IDLEST_SHIFT` để lấy giá trị 0..3 tương ứng Functional/Transition/Idle/Disabled.
+- Dùng `volatile` cho con trỏ MMIO (ví dụ `volatile uint32_t *`) để bắt buộc compiler thực hiện đọc/ghi thực tế tới địa chỉ phần cứng, tránh việc tối ưu hóa làm mất truy cập.
+- PRCM có cơ chế tự động gate/open clocks theo idle/standby protocol nếu module được cấu hình (smart-idle), nhưng phần mềm vẫn phải enable module (gọi `MODULEMODE = ENABLE`), cấu hình idle modes hoặc bật optional clocks. Trên Linux, kernel drivers / runtime-PM thường xử lý việc này cho userspace.
+- Một số ví dụ (ví dụ blink) không hiển thị chờ `IDLEST` vì bootloader/kernel có thể đã bật clock trước — khi thao tác trực tiếp với PRCM qua `/dev/mem`, nên poll `IDLEST` với timeout để an toàn.
+- `GPIO1` có `OPTFCLKEN_GPIO_1_GDBCLK` (bit 18) — optional functional clock dùng cho debounce/functional features; bật bằng cách đặt bit này trong `CM_PER_GPIO1_CLKCTRL` (ví dụ `0x40002`).

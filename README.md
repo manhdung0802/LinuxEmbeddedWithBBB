@@ -110,6 +110,15 @@ sudo ./led_mmap
 
 *(Sẽ được cập nhật sau mỗi bài học)*
 
+### Bài 6 - Clock Module (CM)
+
+- **Chủ đề**: PRCM (Power, Reset, Clock Management), CM_PER vs CM_WKUP, CLKCTRL registers, clock gating.
+- **Điểm thực hành**:
+	- Khi bật clock trực tiếp qua PRCM cần: enable `MODULEMODE`, có thể bật `OPTFCLKEN` (ví dụ GPIO1), rồi poll `IDLEST` với timeout để đảm bảo module ở trạng thái Functional.
+	- Sử dụng `volatile` cho con trỏ MMIO để đảm bảo các thao tác read/write thực sự đến phần cứng.
+	- `PRCM_SIZE = 0x2000` (8KB) là lựa chọn an toàn để ánh xạ `CM_PER` và `CM_WKUP` cùng lúc; một mapping 4KB có thể đủ, nhưng 8KB giảm nhu cầu remap.
+
+
 ---
 
 ## Giai đoạn 3: Ngoại vi nâng cao

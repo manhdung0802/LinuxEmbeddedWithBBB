@@ -109,6 +109,17 @@
 	- notes/session_log.md (mục này)
 - **Ghi chú**: Quiz Bài 05 đã được thu thập và đánh giá nhanh; sẵn sàng qua Bài 06.
 
+### Buổi 6 - 2026-04-08
+- **Chủ đề**: Clock Module (CM) — PRCM, Clock Gating và Enabling Modules
+- **Bài học số**: 6
+- **Nội dung chính**:
+	- Hoàn chỉnh và mở rộng `lessons/bai_06_clock_module/bai_06_clock_module.md`.
+	- Thêm mục **Ghi chú thực hành** tóm tắt: lý do chọn `PRCM_SIZE = 0x2000`, cách bật clock qua `CLKCTRL`, ý nghĩa `IDLEST` và `IDLEST_MASK`, vai trò `volatile` cho MMIO, khác biệt `CM_PER` vs `CM_WKUP`, và `OPTFCLKEN` cho `GPIO1`.
+	- Nhấn mạnh best practice: poll `IDLEST` với timeout sau khi bật clock trực tiếp.
+- **Files cập nhật**:
+	- lessons/bai_06_clock_module/bai_06_clock_module.md
+- **Ghi chú**: Đã thêm tóm tắt thực hành; có thể bổ sung tham chiếu TRM (số trang) nếu cần.
+
 ### Cập nhật nhỏ — 2026-04-01
 - **Hành động**: Kiểm tra và hiệu chỉnh đáp án phần "Câu hỏi kiểm tra" của Bài 4; chèn phần **Đáp án (đã hiệu chỉnh và tóm tắt)** vào file bài học.
 - **Files**: lessons/bai_04_memory_mapped_io/bai_04_memory_mapped_io.md
